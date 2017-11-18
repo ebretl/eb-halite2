@@ -21,7 +21,7 @@ while True:
     command_queue = []
 
     all_my_ships = list(game_map.get_me().all_ships())
-    ship_radius = 1
+    ship_radius = 1.2
     for s in all_my_ships:
         s.radius = ship_radius
 
@@ -138,8 +138,7 @@ while True:
         for r in (7,5,3):
             while theta < 2*math.pi-0.0001:
                 p2 = pos[0] + r*math.cos(theta), pos[1] + r*math.sin(theta)
-                if inbounds(p2) \
-                        and not obstacles_between(pos, p2, ignore=ignore):
+                if inbounds(p2):
                     out.append(p2)
                     # logging.info(str(pos) + " -> " + str(p2) + ", theta = " + str(theta))
                 theta += math.pi / 8
@@ -147,19 +146,19 @@ while True:
     
     # logging.info(str(succ((20, 20))))
     
-    def search(pos1, pos2):
+    def search(pos1, pos2, timeLimit=0.1):
         def dist(p):
             return ((p[0]-pos2[0])**2+(p[1]-pos2[1])**2)**0.5
 
         searchTimeStart = time.time()
-        timeLimit = 1.25 / len(live_ships)
         fringe = [(0, pos1[0], pos1[1])]
         visited = set()
-        def visit(x,y):
+        def visit(pos, update=False):
             k = 4
-            if (x//k, y//k) in visited:
+            if (pos[0]//k, pos[1]//k) in visited:
                 return True
-            visited.add((x//k, y//k))
+            if update:
+                visited.add((pos[0]//k, pos[1]//k))
             return False
         costs = dict()
         costs[pos1] = 0
@@ -172,10 +171,16 @@ while True:
                     and not obstacles_between(thisPos, pos2, ignore=(pos1,)):
                 parents[pos2] = thisPos
                 break
-            if visit(thisX, thisY):
+            if visit(thisPos, update=True):
                 continue
             for nextPos in succ(thisPos, ignore=(pos1,)):
-                if (nextPos not in costs) or (costs[thisPos]+1 < costs[nextPos]):
+                if (not visit(nextPos, update=False)) \
+                        and (
+                            (not nextPos in costs) 
+                            or (costs[thisPos]+1 < costs[nextPos])
+                        ):
+                    if obstacles_between(thisPos, nextPos, ignore=(pos1,)):
+                        continue
                     costs[nextPos] = costs[thisPos] + 1
                     fringe.append((costs[thisPos]+1+(dist(nextPos)/7),
                                     nextPos[0], nextPos[1]))
@@ -200,7 +205,7 @@ while True:
             y = idealY + r * (math.sin(phi) - math.sin(phi+theta))
             if not collided(x, y, src.radius, ignore=((src.x,src.y),)):
                 return hlt.entity.Entity(x,y,src.radius,0,0,0)
-            logging.info("theta = %.2f collided" % theta)
+            # logging.info("theta = %.2f collided" % theta)
             theta += math.pi / 10 if theta >= 0 else 0
             theta = -theta
         return None
@@ -221,7 +226,8 @@ while True:
             checkpoint(str(i))
             navTarget = closest_point(ship, get_target_around(best_entity))
             if navTarget:
-                nextPos = search( (ship.x, ship.y), (navTarget.x, navTarget.y) )
+                timeLimit = (t_start + 1.25 - time.time()) / (len(live_ships) - i)
+                nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y))
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)

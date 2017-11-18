@@ -4,6 +4,7 @@ import time
 import random
 import numpy as np
 import itertools
+import collections
 import math
 
 game = hlt.Game("EB7")
@@ -26,63 +27,93 @@ while True:
         s.radius = ship_radius
 
     live_ships = [x for x in game_map.get_me().all_ships() if x.docking_status==x.DockingStatus.UNDOCKED]
+    random.shuffle(live_ships)
+
+    enemy_ships = []
+    live_enemy_ships = []
+    most_enemy_ships = 0
+    for player in game_map.all_players():
+        if player.id != my_id:
+            their_ships = player.all_ships()
+            enemy_ships += their_ships
+            most_enemy_ships = max(most_enemy_ships, len(their_ships))
+            for s in their_ships:
+                if s.docking_status == s.DockingStatus.UNDOCKED:
+                    live_enemy_ships.append(s)
+    if len(live_enemy_ships) == 0:
+        live_enemy_ships.append(enemy_ships[0])
+
+    ship_ratio = len(all_my_ships) / most_enemy_ships
 
     get_owner_id = lambda pl: pl.owner.id if pl.owner else -1
 
-    owned = [x for x in game_map.all_planets() if get_owner_id(x) == my_id]
-    nonfull = [x for x in owned if not x.is_full()]
-    if len(owned) == 0:
-        owned += live_ships
-    unowned = [x for x in game_map.all_planets() if get_owner_id(x) != my_id]
+    owned = set(x for x in game_map.all_planets() if get_owner_id(x) == my_id)
+    nonfull = set(x for x in owned if not x.is_full())
+
+    def nearest_ship_dist(e):
+        return min(e.calculate_distance_between(ss) for ss in enemy_ships)
+
+    unsafe = set(p for p in owned if nearest_ship_dist(p) < p.radius * 2.5)
+
+    unowned = set(p for p in game_map.all_planets() if p not in owned)
     if len(unowned) == 0:
         command_queue.append(game_map.get_me().all_ships()[0].thrust(0,0))
         game.send_command_queue(command_queue)
         continue
 
-    enemy_ships = []
-    for player in game_map.all_players():
-        if player.id != my_id:
-            enemy_ships += player.all_ships()
+    # interested_planets = unowned | nonfull | unsafe
+    interested_planets = unowned | nonfull
 
     def ship_danger(e):
         if n_players == 4:
-            if len(enemy_ships) <= 10:
-                sample = enemy_ships
-            else:
-                sample = random.sample(enemy_ships, 10)
-            d = sum((e.x-s.x)**2 + (e.y-s.y)**2 for s in sample)
-            if d == 0:
-                return 1
-            else:
-                return d ** -0.5
+            return 1
+            # if len(live_enemy_ships) <= 10:
+            #     sample = live_enemy_ships
+            # else:
+            #     sample = random.sample(live_enemy_ships, 10)
+            # d = sum((e.x-s.x)**2 + (e.y-s.y)**2 for s in sample)
+            # if d == 0:
+            #     return 1
+            # else:
+            #     return d ** -0.5
+        
         else: # n_players == 2
             return 1
+            # count = 0
+            # for s in game_map._all_ships():
+            #     if e.calculate_distance_between(s) <= e.radius+10:
+            #         count += -1 if s.owner.id==my_id else 1
+            # return math.exp(count / 20)
 
     def ship_planet_cost(s, p):
-        return (s.calculate_distance_between(p) 
+        return (s.calculate_distance_between(p)
                 / p.num_docking_spots 
                 * ship_danger(p)
                 )
     
     def ship_ship_cost(s1, s2):
-        return (s1.calculate_distance_between(s2) 
-                / 1.5 
+        return (s1.calculate_distance_between(s2)
+                # * (1 / ship_ratio)
+                * 0.5
                 * ship_danger(s2)
+                # * (0.5 if s2.docking_status==s2.DockingStatus.DOCKED else 1)
                 )
     
     def best_ship(s):
-        closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:5]
+        closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:15]
         return min(closest_ships, key=lambda ss: ship_ship_cost(s,ss))
     
     def nearest_planet(s):
-        return min(unowned+nonfull, key=lambda p: s.calculate_distance_between(p))
+        return min(interested_planets, key=lambda p: s.calculate_distance_between(p))
     def best_planet(s):
-        closest_planets = sorted(unowned+nonfull, key=lambda p: s.calculate_distance_between(p))[:5]
-        return min(closest_planets, key=lambda p: ship_planet_cost(s,p))
+        # closest_planets = sorted(, key=lambda p: s.calculate_distance_between(p))
+        return min(interested_planets, key=lambda p: ship_planet_cost(s,p))
 
     def best_entity(s):
         bs = best_ship(s)
         bp = best_planet(s)
+        # logging.info("best planet %.3f" % ship_planet_cost(s,bp))
+        # logging.info("best ship %.3f" % ship_ship_cost(s,bs))
         return bs if ship_ship_cost(s,bs) < ship_planet_cost(s,bp) else bp
 
     def can_dock(s, p):
@@ -93,7 +124,10 @@ while True:
             if get_owner_id(x) in (-1, my_id):
                 return x
             else:
-                return iter(x.all_docked_ships()).__next__()
+                # return random.choice(x.all_docked_ships())
+                # return iter(x.all_docked_ships()).__next__()
+                return min(x.all_docked_ships(), 
+                        key=lambda s: x.calculate_distance_between(s))
         elif type(x) == hlt.entity.Ship:
             return x
         else:
@@ -210,33 +244,72 @@ while True:
             theta = -theta
         return None
 
+    closest_enemies = dict()
+    for p in game_map.all_planets():
+        closest_enemies[p.id] = min(
+            live_enemy_ships, 
+            key=lambda ss: p.calculate_distance_between(ss)
+        )
 
-    random.shuffle(live_ships)
+    def planet_safe(pl):
+        return pl.calculate_distance_between(
+                closest_enemies[pl.id]) > pl.radius*3
+
+
     ship_entity_combos = [(best_entity(s),s) for s in live_ships]
+
+    # dock ships that can
+    docking = set()
+    for best_entity, ship in ship_entity_combos:
+        if type(best_entity)==hlt.entity.Planet \
+                and can_dock(ship, best_entity) \
+                and (planet_safe(best_entity)
+                    or best_entity.owner == None):
+            command_queue.append(ship.dock(best_entity))
+            docking.add(ship)
+
+    # target_counts = collections.Counter()
+
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 
                             key=lambda sec: sec[1].calculate_distance_between(sec[0]))):
         if time.time() - t_start > 1.25:
             break
 
-        if type(best_entity)==hlt.entity.Planet \
-                and can_dock(ship, best_entity):
-            command_queue.append(ship.dock(best_entity))
-        else:
+        if ship not in docking:
             checkpoint(str(i))
-            navTarget = closest_point(ship, get_target_around(best_entity))
+            if type(best_entity)==hlt.entity.Planet \
+                    and not planet_safe(best_entity):
+                best_entity = closest_enemies[best_entity.id]
+            target_entity = get_target_around(best_entity)
+            if type(best_entity)==hlt.entity.Ship \
+                    and ship.health < best_entity.health:
+                navTarget = target_entity
+            else:
+                navTarget = closest_point(ship, target_entity)
             if navTarget:
-                timeLimit = (t_start + 1.25 - time.time()) / (len(live_ships) - i)
-                nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y))
+                timeLimit = (t_start + 1.25 - time.time()) \
+                            / (len(live_ships) - i + 1)
+                timeLimit = max(0.07, timeLimit)
+                nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
-                    cmd = ship.thrust(int(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x)))
+                    # if type(best_entity) == hlt.entity.Planet \
+                    #         and best_entity.owner \
+                    #         and best_entity.owner.id != my_id:
+                    #     target_counts[best_entity] += 1
+                    #     mag = min(mag, target_counts[best_entity] + 3)
+                    cmd = ship.thrust(int(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
                     ship.x = nx
                     ship.y = ny
-
                     command_queue.append(cmd)
-            # checkpoint("after navigate")
+                else:
+                    a = min(list(owned)+live_ships, 
+                            key=lambda s: ship.calculate_distance_between(s))
+                    cmd = ship.thrust(1, a.calculate_angle_between(ship))
+                    command_queue.append(cmd)
+
 
     if len(command_queue) == 0:
         command_queue.append(game_map.get_me().all_ships()[0].thrust(0,0))

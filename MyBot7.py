@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB9")
+game = hlt.Game("EB7")
 
 while True:
     game_map = game.update_map()
@@ -16,9 +16,6 @@ while True:
 
     def checkpoint(msg):
         logging.info(msg + " - " + str(time.time()-t_start))
-
-    def pos_dist(pos1, pos2):
-        return ((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2) ** 0.5
 
     my_id = game_map.my_id
     n_players = len(game_map.all_players())
@@ -67,36 +64,40 @@ while True:
     # interested_planets = unowned | nonfull | unsafe
     interested_planets = unowned | nonfull
 
-    centrality = collections.Counter()
-    entities = game_map.all_planets() + enemy_ships
-    for e_src, e_cmp in itertools.permutations(entities, 2):
-        if type(e_cmp) == hlt.entity.Ship \
-                and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
-            continue
-        c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
-        centrality[e_src] += c
-    avg = sum(centrality.values()) / len(centrality)
-    for e, score in centrality.items():
-        centrality[e] = (score / avg) ** 0.5
-    # logging.info("lowest centrality is %f" % min(centrality.values()))
-    # logging.info("highest centrality is %f" % max(centrality.values()))
-
+    def ship_danger(e):
+        if n_players == 4:
+            return 1
+            # if len(live_enemy_ships) <= 10:
+            #     sample = live_enemy_ships
+            # else:
+            #     sample = random.sample(live_enemy_ships, 10)
+            # d = sum((e.x-s.x)**2 + (e.y-s.y)**2 for s in sample)
+            # if d == 0:
+            #     return 1
+            # else:
+            #     return d ** -0.5
+        
+        else: # n_players == 2
+            return 1
+            # count = 0
+            # for s in game_map._all_ships():
+            #     if e.calculate_distance_between(s) <= e.radius+10:
+            #         count += -1 if s.owner.id==my_id else 1
+            # return math.exp(count / 20)
 
     def ship_planet_cost(s, p):
-        c = s.calculate_distance_between(p) / p.num_docking_spots 
-        if n_players == 2:
-            return c
-        else:
-            return c * centrality[p]
+        return (s.calculate_distance_between(p)
+                / p.num_docking_spots 
+                * ship_danger(p)
+                )
     
     def ship_ship_cost(s1, s2):
-        c = s1.calculate_distance_between(s2) * 0.7
-        if s2.docking_status==s2.DockingStatus.UNDOCKED:
-            c *= 0.5
-        if n_players == 2:
-            return c
-        else:
-            return c * centrality[s2]
+        return (s1.calculate_distance_between(s2)
+                # * (1 / ship_ratio)
+                * 0.5
+                * ship_danger(s2)
+                # * (0.5 if s2.docking_status==s2.DockingStatus.DOCKED else 1)
+                )
     
     def best_ship(s):
         closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:15]
@@ -154,6 +155,13 @@ while True:
             if collided(x, y, ship_radius, ignore=ignore, obs_list=obstacles):
                 return True
         return False
+        # e1 = hlt.entity.Entity(pos1[0],pos1[1],ship_radius,1,0,-1)
+        # e2 = hlt.entity.Entity(pos2[0],pos2[1],ship_radius,1,0,-2)
+        # logging.info(str(e1) + ", " + str(e2))
+        # for o in game_map.obstacles_between(e1, e2):
+            # if (o.x,o.y) not in ignore:
+                # return True
+        # return False
 
     inbounds = lambda pos: pos[0]>ship_radius and pos[0]<game_map.width-ship_radius \
                        and pos[1]>ship_radius and pos[1]<game_map.height-ship_radius
@@ -230,7 +238,7 @@ while True:
             x = idealX + r * (math.cos(phi) - math.cos(phi+theta))
             y = idealY + r * (math.sin(phi) - math.sin(phi+theta))
             if not collided(x, y, src.radius, ignore=((src.x,src.y),)):
-                return hlt.entity.Position(x,y)
+                return hlt.entity.Entity(x,y,src.radius,0,0,0)
             # logging.info("theta = %.2f collided" % theta)
             theta += math.pi / 10 if theta >= 0 else 0
             theta = -theta
@@ -246,46 +254,6 @@ while True:
     def planet_safe(pl):
         return pl.calculate_distance_between(
                 closest_enemies[pl.id]) > pl.radius*3
-
-    def is_planet(e):
-        return type(e) == hlt.entity.Planet
-    def is_ship(e):
-        return type(e) == hlt.entity.Ship
-
-    # original_target is a (x,y) tuple
-    def micro_policy(ship, original_target):
-        near_friends = [s for s in live_ships 
-                        if ship.calculate_distance_between(s) <= 15]
-        near_live_enemies = [s for s in live_enemy_ships 
-                             if ship.calculate_distance_between(s) <= 15]
-
-        if len(near_live_enemies) == 0:
-            return original_target
-
-        pos1 = (ship.x, ship.y)
-        closest = min(near_live_enemies, key=lambda ss: s.calculate_distance_between(ss))
-        if len(near_friends) >= len(near_live_enemies):
-            # e = closest_point(ship, closest)
-            # return (e.x, e.y) if e else pos1
-            return original_target
-
-        def h(p):
-            d1 = pos_dist(original_target, p) if original_target else 0
-            return pos_dist(avoid_pos, p) + d1
-
-        thrusts = [7,5,3]
-        angles = np.arange(0, 2*math.pi, math.pi/8)
-        avoid_pos = (closest.x, closest.y)
-        best_pos = pos1
-        best_sep = h(pos1)
-        for t,a in itertools.product(thrusts, angles):
-            pos2 = ship.x+t*math.cos(a), ship.y+t*math.sin(a)
-            if not obstacles_between(pos1, pos2, ignore=(pos1,)) \
-                    and h(pos2) > best_sep \
-                    and inbounds(pos2):
-                best_pos = pos2
-                best_sep = h(pos2)
-        return best_pos
 
 
     ship_entity_combos = [(best_entity(s),s) for s in live_ships]
@@ -321,12 +289,19 @@ while True:
             else:
                 navTarget = closest_point(ship, target_entity)
             if navTarget:
+                # timeLimit = (t_start + 1.25 - time.time()) \
+                            # / (len(live_ships) - i + 1)
+                # timeLimit = max(0.07, timeLimit)
                 timeLimit = 0.04
                 nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
-                nextPos = micro_policy(ship, nextPos)
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
+                    # if type(best_entity) == hlt.entity.Planet \
+                    #         and best_entity.owner \
+                    #         and best_entity.owner.id != my_id:
+                    #     target_counts[best_entity] += 1
+                    #     mag = min(mag, target_counts[best_entity] + 3)
                     cmd = ship.thrust(int(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
                     ship.x = nx
                     ship.y = ny
@@ -334,6 +309,10 @@ while True:
                 else:
                     a = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
                             key=lambda s: ship.calculate_distance_between(s))
+                    # logging.info(ship)
+                    # logging.info(a)
+                    # logging.info(a.calculate_angle_between(ship))
+                    # logging.info("")
                     angle = a.calculate_angle_between(ship)
                     cmd = ship.thrust(3, angle)
                     ship.x += 3 * math.cos(math.radians(angle))

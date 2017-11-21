@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB9")
+game = hlt.Game("EB8")
 
 while True:
     game_map = game.update_map()
@@ -16,9 +16,6 @@ while True:
 
     def checkpoint(msg):
         logging.info(msg + " - " + str(time.time()-t_start))
-
-    def pos_dist(pos1, pos2):
-        return ((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2) ** 0.5
 
     my_id = game_map.my_id
     n_players = len(game_map.all_players())
@@ -78,8 +75,34 @@ while True:
     avg = sum(centrality.values()) / len(centrality)
     for e, score in centrality.items():
         centrality[e] = (score / avg) ** 0.5
-    # logging.info("lowest centrality is %f" % min(centrality.values()))
-    # logging.info("highest centrality is %f" % max(centrality.values()))
+    logging.info("lowest centrality is %f" % min(centrality.values()))
+    logging.info("highest centrality is %f" % max(centrality.values()))
+
+    # planet_costs = collections.Counter()
+    # for p1, p2 in itertools.permutations(game_map.all_planets(), 2):
+    #     planet_costs[p1] += p1.calculate_distance_between(p2) \
+    #                         / p1.num_docking_spots
+    # max_score = max(planet_costs.values())
+    # for p, score in planet_costs.items():
+    #     planet_costs[p] = math.exp(score / max_score)
+    # #     logging.info(p)
+    # #     logging.info(score)
+    # #     logging.info(score / max_score)
+    # logging.info("best planet score is %f" % min(planet_costs.values()))
+    # logging.info("worst planet score is %f" % max(planet_costs.values()))
+
+    # ship_costs = collections.Counter()
+    # for s1, s2 in itertools.permutations(enemy_ships, 2):
+    #     if s2.docking_status == s2.DockingStatus.UNDOCKED:
+    #         ship_costs[s1] += s1.calculate_distance_between(s2)
+    # max_score = max(ship_costs[s] for s in enemy_ships)
+    # for s, score in ship_costs.items():
+    #     if max_score > 0:
+    #         ship_costs[s] = math.exp(score / max_score)
+    #     else:
+    #         ship_costs[s] = math.exp(1)
+    # logging.info("best ship score is %f" % min(ship_costs[s] for s in enemy_ships))
+    # logging.info("worst ship score is %f" % max(ship_costs[s] for s in enemy_ships))
 
 
     def ship_planet_cost(s, p):
@@ -111,8 +134,8 @@ while True:
     def best_entity(s):
         bs = best_ship(s)
         bp = best_planet(s)
-        # logging.info("best planet %.3f" % ship_planet_cost(s,bp))
-        # logging.info("best ship %.3f" % ship_ship_cost(s,bs))
+        logging.info("best planet %.3f" % ship_planet_cost(s,bp))
+        logging.info("best ship %.3f" % ship_ship_cost(s,bs))
         return bs if ship_ship_cost(s,bs) < ship_planet_cost(s,bp) else bp
 
     def can_dock(s, p):
@@ -154,6 +177,13 @@ while True:
             if collided(x, y, ship_radius, ignore=ignore, obs_list=obstacles):
                 return True
         return False
+        # e1 = hlt.entity.Entity(pos1[0],pos1[1],ship_radius,1,0,-1)
+        # e2 = hlt.entity.Entity(pos2[0],pos2[1],ship_radius,1,0,-2)
+        # logging.info(str(e1) + ", " + str(e2))
+        # for o in game_map.obstacles_between(e1, e2):
+            # if (o.x,o.y) not in ignore:
+                # return True
+        # return False
 
     inbounds = lambda pos: pos[0]>ship_radius and pos[0]<game_map.width-ship_radius \
                        and pos[1]>ship_radius and pos[1]<game_map.height-ship_radius
@@ -230,7 +260,7 @@ while True:
             x = idealX + r * (math.cos(phi) - math.cos(phi+theta))
             y = idealY + r * (math.sin(phi) - math.sin(phi+theta))
             if not collided(x, y, src.radius, ignore=((src.x,src.y),)):
-                return hlt.entity.Position(x,y)
+                return hlt.entity.Entity(x,y,src.radius,0,0,0)
             # logging.info("theta = %.2f collided" % theta)
             theta += math.pi / 10 if theta >= 0 else 0
             theta = -theta
@@ -247,45 +277,22 @@ while True:
         return pl.calculate_distance_between(
                 closest_enemies[pl.id]) > pl.radius*3
 
-    def is_planet(e):
-        return type(e) == hlt.entity.Planet
-    def is_ship(e):
-        return type(e) == hlt.entity.Ship
-
-    # original_target is a (x,y) tuple
-    def micro_policy(ship, original_target):
-        near_friends = [s for s in live_ships 
-                        if ship.calculate_distance_between(s) <= 15]
-        near_live_enemies = [s for s in live_enemy_ships 
-                             if ship.calculate_distance_between(s) <= 15]
-
-        if len(near_live_enemies) == 0:
-            return original_target
-
-        pos1 = (ship.x, ship.y)
-        closest = min(near_live_enemies, key=lambda ss: s.calculate_distance_between(ss))
-        if len(near_friends) >= len(near_live_enemies):
-            # e = closest_point(ship, closest)
-            # return (e.x, e.y) if e else pos1
-            return original_target
-
-        def h(p):
-            d1 = pos_dist(original_target, p) if original_target else 0
-            return pos_dist(avoid_pos, p) + d1
-
-        thrusts = [7,5,3]
-        angles = np.arange(0, 2*math.pi, math.pi/8)
-        avoid_pos = (closest.x, closest.y)
-        best_pos = pos1
-        best_sep = h(pos1)
-        for t,a in itertools.product(thrusts, angles):
-            pos2 = ship.x+t*math.cos(a), ship.y+t*math.sin(a)
-            if not obstacles_between(pos1, pos2, ignore=(pos1,)) \
-                    and h(pos2) > best_sep \
-                    and inbounds(pos2):
-                best_pos = pos2
-                best_sep = h(pos2)
-        return best_pos
+    # def avoid(ship, original_target):
+    #     def h(pos):
+    #         return (ship.x - original_target.x) ** 2 \
+    #              + (ship.y - original_target.y) ** 2
+    #     thrusts = list(range(1,8))
+    #     angles = list(range(0, 2*math.pi, math.pi/10))
+    #     pos1 = (ship.x, ship.y)
+    #     best_move = (0, 0)
+    #     best_h = h((ship.x, ship.y))
+    #     for t,a in itertools.product(thrusts, angles):
+    #         pos2 = ship.x+t*math.cos(a), ship.y+t*math.sin(a)
+    #         if not obstacles_between(pos1, pos2, ignore=(pos1,)) \
+    #                 and h(pos2) < best_h:
+    #             best_move = (t,a)
+    #             best_h = h(pos2)
+    #     return best_move
 
 
     ship_entity_combos = [(best_entity(s),s) for s in live_ships]
@@ -309,7 +316,7 @@ while True:
             break
 
         if ship not in docking:
-            # checkpoint(str(i))
+            checkpoint(str(i))
             if type(best_entity)==hlt.entity.Planet \
                     and not planet_safe(best_entity):
                 best_entity = closest_enemies[best_entity.id]
@@ -323,7 +330,6 @@ while True:
             if navTarget:
                 timeLimit = 0.04
                 nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
-                nextPos = micro_policy(ship, nextPos)
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
@@ -334,6 +340,10 @@ while True:
                 else:
                     a = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
                             key=lambda s: ship.calculate_distance_between(s))
+                    # logging.info(ship)
+                    # logging.info(a)
+                    # logging.info(a.calculate_angle_between(ship))
+                    # logging.info("")
                     angle = a.calculate_angle_between(ship)
                     cmd = ship.thrust(3, angle)
                     ship.x += 3 * math.cos(math.radians(angle))

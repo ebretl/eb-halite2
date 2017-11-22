@@ -83,9 +83,12 @@ while True:
 
     pl_counts = collections.Counter()
 
+    def n_pl_targeting(pl):
+        return pl_counts[pl] + len(pl.all_docked_ships())
+
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots 
-        c *= (math.exp(0.03 * pl_counts[p]) / math.exp(0))
+        c *= (math.exp(0.03 * n_pl_targeting(p)) / math.exp(0))
         if n_players == 2:
             return c
         else:
@@ -329,11 +332,11 @@ while True:
             if is_planet(best_entity):
                 if planet_safe(best_entity):
                     # logging.info("planet is safe")
-                    if pl_counts[best_entity] >= best_entity.num_docking_spots:
+                    if n_pl_targeting(best_entity) >= best_entity.num_docking_spots:
                         pl_list = best_planet_list(ship)
                         # logging.info("attempting rerouting")
                         for p in pl_list:
-                            if pl_counts[p] < p.num_docking_spots \
+                            if n_pl_targeting(p) < p.num_docking_spots \
                                     and p != best_entity:
                                 # logging.info("rerouting from %s to %s" % (str(best_entity),str(p)))
                                 best_entity = p
@@ -341,8 +344,8 @@ while True:
                         bs = best_ship(ship)
                         if ship_ship_cost(ship,bs) < ship_planet_cost(ship,best_entity):
                             best_entity = bs
-                    else:
-                        pl_counts[best_entity] += 1
+                    # else:
+                        # pl_counts[best_entity] += 1
                 else:
                     best_entity = closest_enemies[best_entity.id]
 

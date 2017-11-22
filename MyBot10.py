@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB11")
+game = hlt.Game("EB10")
 
 while True:
     game_map = game.update_map()
@@ -23,7 +23,6 @@ while True:
     my_id = game_map.my_id
     n_players = len(game_map.all_players())
     command_queue = []
-    nav_targets = dict()
 
     all_my_ships = list(game_map.get_me().all_ships())
     ship_radius = 1.2
@@ -68,17 +67,17 @@ while True:
     # interested_planets = unowned | nonfull | unsafe
     interested_planets = unowned | nonfull
 
-    # centrality = collections.Counter()
-    # entities = game_map.all_planets() + enemy_ships
-    # for e_src, e_cmp in itertools.permutations(entities, 2):
-    #     if type(e_cmp) == hlt.entity.Ship \
-    #             and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
-    #         continue
-    #     c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
-    #     centrality[e_src] += c
-    # avg = sum(centrality.values()) / len(centrality)
-    # for e, score in centrality.items():
-    #     centrality[e] = (score / avg) ** 0.5
+    centrality = collections.Counter()
+    entities = game_map.all_planets() + enemy_ships
+    for e_src, e_cmp in itertools.permutations(entities, 2):
+        if type(e_cmp) == hlt.entity.Ship \
+                and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
+            continue
+        c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
+        centrality[e_src] += c
+    avg = sum(centrality.values()) / len(centrality)
+    for e, score in centrality.items():
+        centrality[e] = (score / avg) ** 0.5
     # logging.info("lowest centrality is %f" % min(centrality.values()))
     # logging.info("highest centrality is %f" % max(centrality.values()))
 
@@ -90,21 +89,19 @@ while True:
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots 
         c *= math.exp(0.05 * n_pl_targeting(p))
-        return c
-        # if n_players == 2:
-        #     return c
-        # else:
-        #     return c * centrality[p]
+        if n_players == 2:
+            return c
+        else:
+            return c * centrality[p]
     
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2) * 0.7
         if s2.docking_status==s2.DockingStatus.UNDOCKED:
             c *= 0.5
-        return c
-        # if n_players == 2:
-        #     return c
-        # else:
-        #     return c * centrality[s2]
+        if n_players == 2:
+            return c
+        else:
+            return c * centrality[s2]
     
     def best_ship(s):
         closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:15]
@@ -142,16 +139,11 @@ while True:
         else:
             return None
 
-    def collided(x, y, r, t, obs_list=None, ignore=tuple()):
+    def collided(x, y, r, obs_list=None, ignore=tuple()):
         if not obs_list:
             obs_list = itertools.chain(game_map.all_planets(), game_map._all_ships())
         for obs in obs_list:
-            if obs in nav_targets:
-                ox = obs.x + (nav_targets[obs][0] - obs.x) * t
-                oy = obs.y + (nav_targets[obs][1] - obs.y) * t
-            else:
-                ox, oy = obs.x, obs.y
-            if ((x-ox)**2+(y-oy)**2) <= (r+obs.radius)**2 \
+            if ((x-obs.x)**2+(y-obs.y)**2) <= (r+obs.radius)**2 \
                     and (obs.x,obs.y) not in ignore:
                 # logging.info("(%f, %f)"%(e.x,e.y))
                 # logging.info(ignore)
@@ -164,11 +156,9 @@ while True:
         obstacles = sorted(game_map.all_planets()+game_map._all_ships(), 
                             key=lambda o: o.calculate_distance_between(hlt.entity.Position(*pos2)))
         obstacles = obstacles[:8]
-        for x,y,t in zip(np.linspace(pos1[0],pos2[0],n), 
-                         np.linspace(pos1[1],pos2[1],n),
-                         np.linspace(0.0, 1.0, n)):
-            # e = hlt.entity.Entity(x, y, ship_radius+1, 1,0,-1)
-            if collided(x, y, ship_radius, t, ignore=ignore, obs_list=obstacles):
+        for x,y in zip(np.linspace(pos1[0],pos2[0],n), np.linspace(pos1[1],pos2[1],n)):
+            e = hlt.entity.Entity(x, y, ship_radius+1, 1,0,-1)
+            if collided(x, y, ship_radius, ignore=ignore, obs_list=obstacles):
                 return True
         return False
 
@@ -246,7 +236,7 @@ while True:
         while theta < math.pi:
             x = idealX + r * (math.cos(phi) - math.cos(phi+theta))
             y = idealY + r * (math.sin(phi) - math.sin(phi+theta))
-            if not collided(x, y, src.radius, 1, ignore=((src.x,src.y),)):
+            if not collided(x, y, src.radius, ignore=((src.x,src.y),)):
                 return hlt.entity.Position(x,y)
             # logging.info("theta = %.2f collided" % theta)
             theta += math.pi / 10 if theta >= 0 else 0
@@ -363,19 +353,17 @@ while True:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
                     cmd = ship.thrust(int(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
-                    # ship.x = nx
-                    # ship.y = ny
+                    ship.x = nx
+                    ship.y = ny
                     command_queue.append(cmd)
-                    nav_targets[ship] = nextPos
                 else:
                     a = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
                             key=lambda s: ship.calculate_distance_between(s))
                     angle = a.calculate_angle_between(ship)
                     cmd = ship.thrust(3, angle)
-                    nx += 3 * math.cos(math.radians(angle))
-                    ny += 3 * math.sin(math.radians(angle))
+                    ship.x += 3 * math.cos(math.radians(angle))
+                    ship.y += 3 * math.sin(math.radians(angle))
                     command_queue.append(cmd)
-                    nav_targets[ship] = (nx, ny)
 
     if len(command_queue) == 0:
         command_queue.append(game_map.get_me().all_ships()[0].thrust(0,0))

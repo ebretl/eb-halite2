@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB10")
+game = hlt.Game("EB9")
 
 while True:
     game_map = game.update_map()
@@ -81,11 +81,9 @@ while True:
     # logging.info("lowest centrality is %f" % min(centrality.values()))
     # logging.info("highest centrality is %f" % max(centrality.values()))
 
-    pl_counts = collections.Counter()
 
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots 
-        c *= (math.exp(0.03 * pl_counts[p]) / math.exp(0))
         if n_players == 2:
             return c
         else:
@@ -109,8 +107,6 @@ while True:
     def best_planet(s):
         # closest_planets = sorted(, key=lambda p: s.calculate_distance_between(p))
         return min(interested_planets, key=lambda p: ship_planet_cost(s,p))
-    def best_planet_list(s):
-        return sorted(interested_planets, key=lambda p: ship_planet_cost(s,p))
 
     def best_entity(s):
         bs = best_ship(s)
@@ -259,35 +255,27 @@ while True:
     # original_target is a (x,y) tuple
     def micro_policy(ship, original_target):
         near_friends = [s for s in live_ships 
-                        if ship.calculate_distance_between(s) <= 25]
+                        if ship.calculate_distance_between(s) <= 15]
         near_live_enemies = [s for s in live_enemy_ships 
-                             if ship.calculate_distance_between(s) <= 17]
+                             if ship.calculate_distance_between(s) <= 15]
 
         if len(near_live_enemies) == 0:
             return original_target
 
+        pos1 = (ship.x, ship.y)
+        closest = min(near_live_enemies, key=lambda ss: s.calculate_distance_between(ss))
         if len(near_friends) >= len(near_live_enemies):
             # e = closest_point(ship, closest)
             # return (e.x, e.y) if e else pos1
             return original_target
 
-        if near_friends:
-            closest_friend = min(near_friends, key=lambda ss: ship.calculate_distance_between(ss))
-            closest_friend = (closest_friend.x, closest_friend.y)
-        else:
-            closest_friend = None
-
         def h(p):
-            want_close = pos_dist(original_target, p) if original_target else 0
-            want_close += pos_dist(closest_friend, p) if closest_friend else 0
-            e = hlt.entity.Position(p[0], p[1])
-            closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
-            avoid_pos = (closest.x, closest.y)
-            return pos_dist(avoid_pos, p)**1.5 - want_close
+            d1 = pos_dist(original_target, p) if original_target else 0
+            return pos_dist(avoid_pos, p) + d1
 
         thrusts = [7,5,3]
         angles = np.arange(0, 2*math.pi, math.pi/8)
-        pos1 = (ship.x, ship.y)
+        avoid_pos = (closest.x, closest.y)
         best_pos = pos1
         best_sep = h(pos1)
         for t,a in itertools.product(thrusts, angles):
@@ -299,24 +287,20 @@ while True:
                 best_sep = h(pos2)
         return best_pos
 
-    ship_entity_combos = []
-    for s in sorted(live_ships, 
-                    key=lambda ss: nearest_planet(ss).calculate_distance_between(ss)):
-        be = best_entity(s)
-        if is_planet(be):
-            pl_counts[be] += 1
-        ship_entity_combos.append((be, s))
+
+    ship_entity_combos = [(best_entity(s),s) for s in live_ships]
 
     # dock ships that can
     docking = set()
     for best_entity, ship in ship_entity_combos:
-        if is_planet(best_entity) \
+        if type(best_entity)==hlt.entity.Planet \
                 and can_dock(ship, best_entity) \
-                and planet_safe(best_entity):
-                # and (planet_safe(best_entity)
-                #     or best_entity.owner == None):
+                and (planet_safe(best_entity)
+                    or best_entity.owner == None):
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)
+
+    # target_counts = collections.Counter()
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 
@@ -326,29 +310,12 @@ while True:
 
         if ship not in docking:
             # checkpoint(str(i))
-            if is_planet(best_entity):
-                if planet_safe(best_entity):
-                    # logging.info("planet is safe")
-                    if pl_counts[best_entity] >= best_entity.num_docking_spots:
-                        pl_list = best_planet_list(ship)
-                        # logging.info("attempting rerouting")
-                        for p in pl_list:
-                            if pl_counts[p] < p.num_docking_spots \
-                                    and p != best_entity:
-                                # logging.info("rerouting from %s to %s" % (str(best_entity),str(p)))
-                                best_entity = p
-                                break
-                        bs = best_ship(ship)
-                        if ship_ship_cost(ship,bs) < ship_planet_cost(ship,best_entity):
-                            best_entity = bs
-                    else:
-                        pl_counts[best_entity] += 1
-                else:
-                    best_entity = closest_enemies[best_entity.id]
-
+            if type(best_entity)==hlt.entity.Planet \
+                    and not planet_safe(best_entity):
+                best_entity = closest_enemies[best_entity.id]
             target_entity = get_target_around(best_entity)
 
-            if is_ship(best_entity) \
+            if type(best_entity)==hlt.entity.Ship \
                     and ship.health < best_entity.health:
                 navTarget = target_entity
             else:

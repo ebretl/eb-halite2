@@ -88,7 +88,7 @@ while True:
 
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots 
-        c *= (math.exp(0.03 * n_pl_targeting(p)) / math.exp(0))
+        c *= math.exp(0.05 * n_pl_targeting(p))
         if n_players == 2:
             return c
         else:
@@ -187,7 +187,7 @@ while True:
         fringe = [(0, pos1[0], pos1[1])]
         visited = set()
         def visit(pos, update=False):
-            k = 4
+            k = 3
             if (pos[0]//k, pos[1]//k) in visited:
                 return True
             if update:
@@ -243,16 +243,17 @@ while True:
             theta = -theta
         return None
 
-    closest_enemies = dict()
+    planet_enemies = dict()
+    planet_friendlies = dict()
     for p in game_map.all_planets():
-        closest_enemies[p.id] = min(
-            live_enemy_ships, 
-            key=lambda ss: p.calculate_distance_between(ss)
-        )
+        planet_enemies[p] = [s for s in live_enemy_ships
+                if p.calculate_distance_between(s) < p.radius*3]
+        planet_friendlies[p] = [s for s in live_ships
+                if p.calculate_distance_between(s) < p.radius*3]
 
     def planet_safe(pl):
-        return pl.calculate_distance_between(
-                closest_enemies[pl.id]) > pl.radius*3
+        return len(planet_enemies[pl]) == 0 \
+            or len(planet_friendlies[pl]) > len(planet_enemies[pl])
 
     def is_planet(e):
         return type(e) == hlt.entity.Planet
@@ -302,6 +303,7 @@ while True:
                 best_sep = h(pos2)
         return best_pos
 
+
     ship_entity_combos = []
     for s in sorted(live_ships, 
                     key=lambda ss: nearest_planet(ss).calculate_distance_between(ss)):
@@ -324,30 +326,17 @@ while True:
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 
                             key=lambda sec: sec[1].calculate_distance_between(sec[0]))):
-        if time.time() - t_start > 1.25:
+        if time.time() - t_start > 1.3:
             break
 
         if ship not in docking:
             # checkpoint(str(i))
             if is_planet(best_entity):
-                if planet_safe(best_entity):
-                    # logging.info("planet is safe")
-                    if n_pl_targeting(best_entity) >= best_entity.num_docking_spots:
-                        pl_list = best_planet_list(ship)
-                        # logging.info("attempting rerouting")
-                        for p in pl_list:
-                            if n_pl_targeting(p) < p.num_docking_spots \
-                                    and p != best_entity:
-                                # logging.info("rerouting from %s to %s" % (str(best_entity),str(p)))
-                                best_entity = p
-                                break
-                        bs = best_ship(ship)
-                        if ship_ship_cost(ship,bs) < ship_planet_cost(ship,best_entity):
-                            best_entity = bs
-                    # else:
-                        # pl_counts[best_entity] += 1
-                else:
-                    best_entity = closest_enemies[best_entity.id]
+                if not planet_safe(best_entity):
+                    best_entity = min(
+                        planet_enemies[best_entity],
+                        key=lambda s: best_entity.calculate_distance_between(s)
+                    )
 
             target_entity = get_target_around(best_entity)
 

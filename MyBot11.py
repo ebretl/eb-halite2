@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB12")
+game = hlt.Game("EB11")
 
 while True:
     game_map = game.update_map()

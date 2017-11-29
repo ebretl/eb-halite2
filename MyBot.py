@@ -68,17 +68,17 @@ while True:
     # interested_planets = unowned | nonfull | unsafe
     interested_planets = unowned | nonfull
 
-    # centrality = collections.Counter()
-    # entities = game_map.all_planets() + enemy_ships
-    # for e_src, e_cmp in itertools.permutations(entities, 2):
-    #     if type(e_cmp) == hlt.entity.Ship \
-    #             and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
-    #         continue
-    #     c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
-    #     centrality[e_src] += c
-    # avg = sum(centrality.values()) / len(centrality)
-    # for e, score in centrality.items():
-    #     centrality[e] = (score / avg) ** 0.5
+    centrality = collections.Counter()
+    entities = game_map.all_planets() + enemy_ships
+    for e_src, e_cmp in itertools.permutations(entities, 2):
+        if type(e_cmp) == hlt.entity.Ship \
+                and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
+            continue
+        c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
+        centrality[e_src] += c
+    avg = sum(centrality.values()) / len(centrality)
+    for e, score in centrality.items():
+        centrality[e] = (score / avg) ** 0.5
     # logging.info("lowest centrality is %f" % min(centrality.values()))
     # logging.info("highest centrality is %f" % max(centrality.values()))
 
@@ -101,13 +101,11 @@ while True:
             c *= math.exp(0.08 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.1 * n)
-        if planet_safe(p):
-            c *= 0.75
+        if not p.owner:
+            c *= 0.5
+        if n_players == 4:
+            c *= centrality[p]
         return c
-        # if n_players == 2:
-        #     return c
-        # else:
-        #     return c * centrality[p]
     
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
@@ -115,11 +113,9 @@ while True:
             c *= 0.25
         else:
             c *= 1.5
+        if n_players == 4:
+            c *= centrality[s2]
         return c
-        # if n_players == 2:
-        #     return c
-        # else:
-        #     return c * centrality[s2]
     
     def best_ship(s):
         closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:15]

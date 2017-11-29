@@ -7,7 +7,7 @@ import itertools
 import collections
 import math
 
-game = hlt.Game("EB13")
+game = hlt.Game("EB12")
 
 while True:
     game_map = game.update_map()
@@ -102,7 +102,7 @@ while True:
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.1 * n)
         if not p.owner:
-            c *= 0.8
+            c *= 0.5
         if n_players == 4:
             c *= centrality[p]
         return c
@@ -110,7 +110,7 @@ while True:
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.4
+            c *= 0.25
         else:
             c *= 1.5
         if n_players == 4:
@@ -266,7 +266,7 @@ while True:
 
     def planet_safe(pl):
         return len(planet_enemies[pl]) == 0 \
-            or len(planet_friendlies[pl]) >= 2 * len(planet_enemies[pl])
+            or len(planet_friendlies[pl]) > len(planet_enemies[pl])
 
     def is_planet(e):
         return type(e) == hlt.entity.Planet

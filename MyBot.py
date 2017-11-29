@@ -98,12 +98,12 @@ while True:
 
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots
-        if p in pl_counts:
-            c *= math.exp(0.09 * n_pl_targeting(p))
-        n = len(planet_enemies[p]) - len(planet_friendlies[p])
-        c *= math.exp(0.08 * n)
-        if not p.owner:
-            c *= 0.85
+        # if p in pl_counts:
+        #     c *= math.exp(0.09 * n_pl_targeting(p))
+        # n = len(planet_enemies[p]) - len(planet_friendlies[p])
+        # c *= math.exp(0.08 * n)
+        # if not p.owner:
+        #     c *= 0.85
         # if n_players == 4:
         #     c *= centrality[p]
         return c
@@ -171,15 +171,14 @@ while True:
         return False
 
     def obstacles_between(pos1, pos2, ignore=tuple()):
-        n = 5
+        n = 7
         # obstacles = game_map.nearby_entities_by_distance(hlt.entity.Entity(pos2[0],pos2[1],0,0,0,0))[:8]
         obstacles = sorted(game_map.all_planets()+game_map._all_ships(), 
-                            key=lambda o: o.calculate_distance_between(hlt.entity.Position(*pos2)))
-        obstacles = obstacles[:8]
+                            key=lambda o: pos_dist((o.x,o.y), pos2))
+        obstacles = obstacles[:16]
         for x,y,t in zip(np.linspace(pos1[0],pos2[0],n), 
                          np.linspace(pos1[1],pos2[1],n),
                          np.linspace(0.0, 1.0, n)):
-            # e = hlt.entity.Entity(x, y, ship_radius+1, 1,0,-1)
             if collided(x, y, ship_radius, t, ignore=ignore, obs_list=obstacles):
                 return True
         return False
@@ -281,23 +280,29 @@ while True:
         near_live_enemies = [s for s in live_enemy_ships 
                              if ship.calculate_distance_between(s) <= 28]
 
-        if len(near_live_enemies) == 0:
-            return original_target
+        # if len(near_live_enemies) == 0:
+        #     return original_target
 
-        if len(near_friends) > len(near_live_enemies):
-            # e = closest_point(ship, closest)
-            # return (e.x, e.y) if e else pos1
-            return original_target
+        # if len(near_friends) > len(near_live_enemies):
+        #     # e = closest_point(ship, closest)
+        #     # return (e.x, e.y) if e else pos1
+        #     return original_target
 
         def h(p):
             want_close = pos_dist(original_target, p) if original_target else 0
             # want_close += pos_dist(closest_friend, p) if closest_friend else 0
-            # if near_friends:
-            #     want_close += min(ship.calculate_distance_between(ss) for ss in near_friends)
-            e = hlt.entity.Position(p[0], p[1])
-            closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
-            avoid_pos = (closest.x, closest.y)
-            return pos_dist(avoid_pos, p)*2 - want_close
+            if near_friends:
+                want_close += min(ship.calculate_distance_between(ss) for ss in near_friends) * 2
+            if len(near_friends) > len(near_live_enemies):
+                avoid_score = 0
+            elif near_live_enemies:
+                e = hlt.entity.Position(p[0], p[1])
+                closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
+                avoid_pos = (closest.x, closest.y)
+                avoid_score = pos_dist(avoid_pos, p)*2
+            else:
+                avoid_score = 0
+            return avoid_score - want_close
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)
@@ -328,11 +333,10 @@ while True:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
-                # and (planet_safe(best_entity)
-                #     or best_entity.owner == None):
-            if n_players == 2 and len(enemy_ships)==len(live_enemy_ships) \
-                    and nearest_ship_dist(ship) < 80:
-                continue
+            # if n_players == 2 and len(enemy_ships)==len(live_enemy_ships) \
+            #         and nearest_ship_dist(ship) < 80 \
+            #         and len(all_my_ships) - len(live_ships) + len(docking) == 0:
+            #     continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)
 
@@ -359,9 +363,10 @@ while True:
             else:
                 navTarget = closest_point(ship, target_entity)
             if navTarget:
-                timeLimit = 0.04
-                nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
-                nextPos = micro_policy(ship, nextPos)
+                # timeLimit = 0.04
+                # nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
+                # nextPos = micro_policy(ship, nextPos)
+                nextPos = micro_policy(ship, (navTarget.x, navTarget.y))
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)

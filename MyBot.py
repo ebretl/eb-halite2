@@ -277,9 +277,9 @@ while True:
     # original_target is a (x,y) tuple
     def micro_policy(ship, original_target):
         near_friends = [s for s in live_ships 
-                        if ship!=s and ship.calculate_distance_between(s) <= 22]
+                        if ship!=s and ship.calculate_distance_between(s) <= 28]
         near_live_enemies = [s for s in live_enemy_ships 
-                             if ship.calculate_distance_between(s) <= 22]
+                             if ship.calculate_distance_between(s) <= 28]
 
         if len(near_live_enemies) == 0:
             return original_target
@@ -297,7 +297,7 @@ while True:
             e = hlt.entity.Position(p[0], p[1])
             closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
             avoid_pos = (closest.x, closest.y)
-            return pos_dist(avoid_pos, p)*1.5 - want_close
+            return pos_dist(avoid_pos, p)*3 - want_close
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)

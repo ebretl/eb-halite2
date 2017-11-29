@@ -292,12 +292,12 @@ while True:
         def h(p):
             want_close = pos_dist(original_target, p) if original_target else 0
             # want_close += pos_dist(closest_friend, p) if closest_friend else 0
-            if near_friends:
-                want_close += min(ship.calculate_distance_between(ss) for ss in near_friends)
+            # if near_friends:
+            #     want_close += min(ship.calculate_distance_between(ss) for ss in near_friends)
             e = hlt.entity.Position(p[0], p[1])
             closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
             avoid_pos = (closest.x, closest.y)
-            return pos_dist(avoid_pos, p)*3 - want_close
+            return pos_dist(avoid_pos, p)*2 - want_close
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)
@@ -330,6 +330,9 @@ while True:
                 and planet_safe(best_entity):
                 # and (planet_safe(best_entity)
                 #     or best_entity.owner == None):
+            if n_players == 2 and len(enemy_ships)==len(live_enemy_ships) \
+                    and nearest_ship_dist(ship) < 80:
+                continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)
 

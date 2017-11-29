@@ -26,7 +26,7 @@ while True:
     nav_targets = dict()
 
     all_my_ships = list(game_map.get_me().all_ships())
-    ship_radius = 1.2
+    ship_radius = 0.75
     for s in all_my_ships:
         s.radius = ship_radius
 
@@ -57,7 +57,7 @@ while True:
     def nearest_ship_dist(e):
         return min(e.calculate_distance_between(ss) for ss in enemy_ships)
 
-    unsafe = set(p for p in owned if nearest_ship_dist(p) < p.radius * 2.5)
+    # unsafe = set(p for p in owned if nearest_ship_dist(p) < p.radius * 2.5)
 
     unowned = set(p for p in game_map.all_planets() if p not in owned)
     if len(unowned) == 0:
@@ -84,12 +84,23 @@ while True:
 
     pl_counts = collections.Counter()
 
+    planet_enemies = dict()
+    planet_friendlies = dict()
+    for p in game_map.all_planets():
+        planet_enemies[p] = [s for s in live_enemy_ships
+                if p.calculate_distance_between(s) < p.radius*3]
+        planet_friendlies[p] = [s for s in live_ships
+                if p.calculate_distance_between(s) < p.radius*3]
+
     def n_pl_targeting(pl):
         return pl_counts[pl] + len(pl.all_docked_ships())
 
     def ship_planet_cost(s, p):
-        c = s.calculate_distance_between(p) / p.num_docking_spots 
-        c *= math.exp(0.05 * n_pl_targeting(p))
+        c = s.calculate_distance_between(p) / p.num_docking_spots
+        if p in pl_counts:
+            c *= math.exp(0.05 * n_pl_targeting(p))
+        n = len(planet_enemies[p]) - len(planet_friendlies[p])
+        c *= math.exp(0.15 * n)
         return c
         # if n_players == 2:
         #     return c
@@ -98,7 +109,7 @@ while True:
     
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2) * 0.7
-        if s2.docking_status==s2.DockingStatus.UNDOCKED:
+        if s2.docking_status!=s2.DockingStatus.UNDOCKED:
             c *= 0.5
         return c
         # if n_players == 2:
@@ -253,14 +264,6 @@ while True:
             theta = -theta
         return None
 
-    planet_enemies = dict()
-    planet_friendlies = dict()
-    for p in game_map.all_planets():
-        planet_enemies[p] = [s for s in live_enemy_ships
-                if p.calculate_distance_between(s) < p.radius*3]
-        planet_friendlies[p] = [s for s in live_ships
-                if p.calculate_distance_between(s) < p.radius*3]
-
     def planet_safe(pl):
         return len(planet_enemies[pl]) == 0 \
             or len(planet_friendlies[pl]) > len(planet_enemies[pl])
@@ -273,14 +276,14 @@ while True:
     # original_target is a (x,y) tuple
     def micro_policy(ship, original_target):
         near_friends = [s for s in live_ships 
-                        if ship.calculate_distance_between(s) <= 25]
+                        if ship.calculate_distance_between(s) <= 30]
         near_live_enemies = [s for s in live_enemy_ships 
-                             if ship.calculate_distance_between(s) <= 17]
+                             if ship.calculate_distance_between(s) <= 30]
 
         if len(near_live_enemies) == 0:
             return original_target
 
-        if len(near_friends) >= len(near_live_enemies):
+        if len(near_friends) > len(near_live_enemies):
             # e = closest_point(ship, closest)
             # return (e.x, e.y) if e else pos1
             return original_target

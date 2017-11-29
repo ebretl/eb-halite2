@@ -68,19 +68,20 @@ while True:
     # interested_planets = unowned | nonfull | unsafe
     interested_planets = unowned | nonfull
 
-    centrality = collections.Counter()
-    entities = game_map.all_planets() + enemy_ships
-    for e_src, e_cmp in itertools.permutations(entities, 2):
-        if type(e_cmp) == hlt.entity.Ship \
-                and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
-            continue
-        c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
-        centrality[e_src] += c
-    avg = sum(centrality.values()) / len(centrality)
-    for e, score in centrality.items():
-        centrality[e] = (score / avg) ** 0.5
-    # logging.info("lowest centrality is %f" % min(centrality.values()))
-    # logging.info("highest centrality is %f" % max(centrality.values()))
+    if n_players == 4:
+        centrality = collections.Counter()
+        entities = game_map.all_planets() + enemy_ships
+        for e_src, e_cmp in itertools.permutations(entities, 2):
+            if type(e_cmp) == hlt.entity.Ship \
+                    and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
+                continue
+            c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
+            centrality[e_src] += c
+        avg = sum(centrality.values()) / len(centrality)
+        for e, score in centrality.items():
+            centrality[e] = (score / avg) ** 0.5
+        # logging.info("lowest centrality is %f" % min(centrality.values()))
+        # logging.info("highest centrality is %f" % max(centrality.values()))
 
     pl_counts = collections.Counter()
 
@@ -98,11 +99,11 @@ while True:
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots
         if p in pl_counts:
-            c *= math.exp(0.05 * n_pl_targeting(p))
+            c *= math.exp(0.09 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
-        c *= math.exp(0.1 * n)
+        c *= math.exp(0.08 * n)
         if not p.owner:
-            c *= 0.8
+            c *= 0.85
         if n_players == 4:
             c *= centrality[p]
         return c
@@ -110,9 +111,9 @@ while True:
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.4
+            c *= 0.1
         else:
-            c *= 1
+            c *= 1.5
         if n_players == 4:
             c *= centrality[s2]
         return c

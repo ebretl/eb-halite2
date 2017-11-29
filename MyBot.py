@@ -88,9 +88,9 @@ while True:
     planet_friendlies = dict()
     for p in game_map.all_planets():
         planet_enemies[p] = [s for s in live_enemy_ships
-                if p.calculate_distance_between(s) < p.radius*3]
+                if p.calculate_distance_between(s) < p.radius+40]
         planet_friendlies[p] = [s for s in live_ships
-                if p.calculate_distance_between(s) < p.radius*3]
+                if p.calculate_distance_between(s) < p.radius+40]
 
     def n_pl_targeting(pl):
         return pl_counts[pl] + len(pl.all_docked_ships())
@@ -98,9 +98,11 @@ while True:
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots
         if p in pl_counts:
-            c *= math.exp(0.05 * n_pl_targeting(p))
+            c *= math.exp(0.08 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
-        c *= math.exp(0.15 * n)
+        c *= math.exp(0.1 * n)
+        if planet_safe(p):
+            c *= 0.75
         return c
         # if n_players == 2:
         #     return c
@@ -108,9 +110,11 @@ while True:
         #     return c * centrality[p]
     
     def ship_ship_cost(s1, s2):
-        c = s1.calculate_distance_between(s2) * 0.7
+        c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.5
+            c *= 0.25
+        else:
+            c *= 1.5
         return c
         # if n_players == 2:
         #     return c

@@ -68,17 +68,17 @@ while True:
     # interested_planets = unowned | nonfull | unsafe
     interested_planets = unowned | nonfull
 
-    centrality = collections.Counter()
-    entities = game_map.all_planets() + enemy_ships
-    for e_src, e_cmp in itertools.permutations(entities, 2):
-        if type(e_cmp) == hlt.entity.Ship \
-                and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
-            continue
-        c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
-        centrality[e_src] += c
-    avg = sum(centrality.values()) / len(centrality)
-    for e, score in centrality.items():
-        centrality[e] = (score / avg) ** 0.5
+    # centrality = collections.Counter()
+    # entities = game_map.all_planets() + enemy_ships
+    # for e_src, e_cmp in itertools.permutations(entities, 2):
+    #     if type(e_cmp) == hlt.entity.Ship \
+    #             and e_cmp.docking_status!=e_cmp.DockingStatus.UNDOCKED:
+    #         continue
+    #     c = math.exp(-0.05 * e_src.calculate_distance_between(e_cmp))
+    #     centrality[e_src] += c
+    # avg = sum(centrality.values()) / len(centrality)
+    # for e, score in centrality.items():
+    #     centrality[e] = (score / avg) ** 0.5
     # logging.info("lowest centrality is %f" % min(centrality.values()))
     # logging.info("highest centrality is %f" % max(centrality.values()))
 
@@ -88,9 +88,9 @@ while True:
     planet_friendlies = dict()
     for p in game_map.all_planets():
         planet_enemies[p] = [s for s in live_enemy_ships
-                if p.calculate_distance_between(s) < p.radius+40]
+                if p.calculate_distance_between(s) < p.radius*3]
         planet_friendlies[p] = [s for s in live_ships
-                if p.calculate_distance_between(s) < p.radius+40]
+                if p.calculate_distance_between(s) < p.radius*3]
 
     def n_pl_targeting(pl):
         return pl_counts[pl] + len(pl.all_docked_ships())
@@ -98,24 +98,24 @@ while True:
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots
         if p in pl_counts:
-            c *= math.exp(0.08 * n_pl_targeting(p))
+            c *= math.exp(0.05 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
-        c *= math.exp(0.1 * n)
-        if not p.owner:
-            c *= 0.5
-        if n_players == 4:
-            c *= centrality[p]
+        c *= math.exp(0.15 * n)
         return c
+        # if n_players == 2:
+        #     return c
+        # else:
+        #     return c * centrality[p]
     
     def ship_ship_cost(s1, s2):
-        c = s1.calculate_distance_between(s2)
+        c = s1.calculate_distance_between(s2) * 0.7
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.25
-        else:
-            c *= 1.5
-        if n_players == 4:
-            c *= centrality[s2]
+            c *= 0.5
         return c
+        # if n_players == 2:
+        #     return c
+        # else:
+        #     return c * centrality[s2]
     
     def best_ship(s):
         closest_ships = sorted(enemy_ships, key=lambda ss: s.calculate_distance_between(ss))[:15]

@@ -98,7 +98,7 @@ while True:
     def ship_planet_cost(s, p):
         c = s.calculate_distance_between(p) / p.num_docking_spots
         if p in pl_counts:
-            c *= math.exp(0.08 * n_pl_targeting(p))
+            c *= math.exp(0.05 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.1 * n)
         if not p.owner:
@@ -112,7 +112,7 @@ while True:
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
             c *= 0.4
         else:
-            c *= 1.5
+            c *= 1
         if n_players == 4:
             c *= centrality[s2]
         return c
@@ -266,7 +266,7 @@ while True:
 
     def planet_safe(pl):
         return len(planet_enemies[pl]) == 0 \
-            or len(planet_friendlies[pl]) >= 2 * len(planet_enemies[pl])
+            or len(planet_friendlies[pl]) >= 1.5 * len(planet_enemies[pl])
 
     def is_planet(e):
         return type(e) == hlt.entity.Planet

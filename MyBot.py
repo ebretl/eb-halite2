@@ -26,7 +26,7 @@ while True:
     nav_targets = dict()
 
     all_my_ships = list(game_map.get_me().all_ships())
-    ship_radius = 0.75
+    ship_radius = 0.8
     for s in all_my_ships:
         s.radius = ship_radius
 
@@ -174,7 +174,7 @@ while True:
         return False
 
     def obstacles_between(pos1, pos2, ignore=tuple()):
-        n = 5
+        n = 7
         # obstacles = game_map.nearby_entities_by_distance(hlt.entity.Entity(pos2[0],pos2[1],0,0,0,0))[:8]
         obstacles = sorted(game_map.all_planets()+game_map._all_ships(), 
                             key=lambda o: o.calculate_distance_between(hlt.entity.Position(*pos2)))
@@ -294,7 +294,11 @@ while True:
             e = hlt.entity.Position(p[0], p[1])
             closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
             avoid_pos = (closest.x, closest.y)
-            return pos_dist(avoid_pos, p)*1.2 - want_close
+            if n_players==4 and len(live_ships)*4 < len(live_enemy_ships):
+                runaway_k = 5
+            else:
+                runaway_k = 1.2
+            return pos_dist(avoid_pos, p)*runaway_k - want_close
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)

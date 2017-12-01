@@ -33,6 +33,24 @@ while True:
     live_ships = [x for x in game_map.get_me().all_ships() if x.docking_status==x.DockingStatus.UNDOCKED]
     random.shuffle(live_ships)
 
+    # my_clusters = list()
+    # def get_cluster(ship):
+    #     for cluster in my_clusters:
+    #         if ship in cluster:
+    #             return cluster
+    #     return None
+
+    # for ship in live_ships:
+    #     for other in live_ships:
+    #         if ship != other and ship.calculate_distance_between(other) < 2.0:
+    #             other_cluster = get_cluster(other)
+    #             if other_cluster:
+    #                 other_cluster.add(ship)
+    #             else:
+    #                 my_clusters.append(set([ship]))
+            
+
+
     enemy_ships = []
     live_enemy_ships = []
     most_enemy_ships = 0
@@ -49,15 +67,16 @@ while True:
 
     ship_ratio = len(all_my_ships) / most_enemy_ships
 
+    is_2p_early_game = n_players == 2 and len(enemy_ships) == 3 \
+                    and len(all_my_ships) == 3
+
     get_owner_id = lambda pl: pl.owner.id if pl.owner else -1
 
     owned = set(x for x in game_map.all_planets() if get_owner_id(x) == my_id)
     nonfull = set(x for x in owned if not x.is_full())
 
     def nearest_ship_dist(e):
-        return min(e.calculate_distance_between(ss) for ss in enemy_ships)
-
-    # unsafe = set(p for p in owned if nearest_ship_dist(p) < p.radius * 2.5)
+        return min(e.calculate_distance_between(ss) for ss in live_enemy_ships)
 
     unowned = set(p for p in game_map.all_planets() if p not in owned)
     if len(unowned) == 0:
@@ -102,10 +121,16 @@ while True:
             c *= math.exp(0.09 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.08 * n)
-        if not p.owner and p not in pl_counts:
+        if not is_2p_early_game and not p.owner and p not in pl_counts \
+                and planet_safe(p) and nearest_ship_dist(s) > 170:
             c *= 0.5
         if n_players == 4:
             c *= centrality[p]
+        if is_2p_early_game and pl_counts[p]:
+                if nearest_ship_dist(s) < 170:
+                    c *= 0.01
+                else:
+                    c *= 1.3
         return c
     
     def ship_ship_cost(s1, s2):
@@ -116,7 +141,7 @@ while True:
             nearp = nearest_planet(s2)
             if get_owner_id(nearp)==my_id \
                     and len(planet_enemies[nearp]) <= len(planet_friendlies[nearp]):
-                c *= 0.25
+                c *= 0.1
             else:
                 c *= 1.5
         if n_players == 4:
@@ -296,7 +321,7 @@ while True:
             e = hlt.entity.Position(p[0], p[1])
             closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
             avoid_pos = (closest.x, closest.y)
-            if n_players==4 and len(all_my_ships)*4 < len(enemy_ships):
+            if n_players==4 and ship_ratio < 1/4:
                 runaway_k = 5
             else:
                 runaway_k = 1.2
@@ -331,10 +356,8 @@ while True:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
-            if n_players == 2 and len(enemy_ships) == 3 \
-                    and len(all_my_ships) == 3 \
-                    and len(live_enemy_ships) >= len(live_ships) - len(docking) \
-                    and nearest_ship_dist(ship) < 150:
+            if is_2p_early_game and nearest_ship_dist(ship) < 150 \
+                    and len(live_enemy_ships) >= len(live_ships) - len(docking):
                 continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)

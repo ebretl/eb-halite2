@@ -113,12 +113,12 @@ while True:
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.2
+            c *= 0.13
         else:
             nearp = nearest_planet(s2)
             if get_owner_id(nearp)==my_id \
                     and len(planet_enemies[nearp]) <= len(planet_friendlies[nearp]):
-                c *= 0.2
+                c *= 0.4
             else:
                 c *= 1.2
         if n_players == 4:
@@ -301,7 +301,7 @@ while True:
             if n_players==4 and len(all_my_ships)*4 < len(enemy_ships):
                 runaway_k = 5
             else:
-                runaway_k = 1.1
+                runaway_k = 1.25
             return pos_dist(avoid_pos, p)*runaway_k - want_close
 
         thrusts = [7,5,3,1]

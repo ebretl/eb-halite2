@@ -9,8 +9,6 @@ import math
 
 game = hlt.Game("EB15")
 
-early_game = True
-
 while True:
     game_map = game.update_map()
     t_start = time.time()
@@ -26,9 +24,6 @@ while True:
     n_players = len(game_map.all_players())
     command_queue = []
     nav_targets = dict()
-
-    if n_players == 4:
-        early_game = False
 
     all_my_ships = list(game_map.get_me().all_ships())
     ship_radius = 0.8
@@ -294,10 +289,6 @@ while True:
         if len(near_live_enemies) == 0 or len(near_friends) > len(near_live_enemies):
             return original_target
 
-        global early_game
-        if early_game:
-            early_game = False
-
         def h(p):
             want_close = pos_dist(original_target, p) if original_target else 0
             if near_friends:
@@ -333,9 +324,6 @@ while True:
         if is_planet(be):
             pl_counts[be] += 1
         ship_entity_combos.append((be, s))
-
-    if len(live_enemy_ships) == 0:
-        early_game = False
     
     # dock ships that can
     docking = set()
@@ -343,8 +331,10 @@ while True:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
-            if n_players == 2 and len(live_enemy_ships)>=len(live_ships)-len(docking) \
-                    and early_game and nearest_ship_dist(ship) < 200:
+            if n_players == 2 and len(enemy_ships) == 3 \
+                    and len(all_my_ships) == 3 \
+                    and len(live_enemy_ships) >= len(live_ships) - len(docking) \
+                    and nearest_ship_dist(ship) < 150:
                 continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)

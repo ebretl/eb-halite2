@@ -9,7 +9,7 @@ import math
 
 game = hlt.Game("EB15")
 
-ever_docked = False
+early_game = True
 
 while True:
     game_map = game.update_map()
@@ -26,6 +26,9 @@ while True:
     n_players = len(game_map.all_players())
     command_queue = []
     nav_targets = dict()
+
+    if n_players == 4:
+        early_game = False
 
     all_my_ships = list(game_map.get_me().all_ships())
     ship_radius = 0.8
@@ -104,8 +107,8 @@ while True:
             c *= math.exp(0.09 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.08 * n)
-        if not p.owner:
-            c *= 0.85
+        if not p.owner and p not in pl_counts:
+            c *= 0.5
         if n_players == 4:
             c *= centrality[p]
         return c
@@ -113,14 +116,14 @@ while True:
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.15
+            c *= 0.13
         else:
             nearp = nearest_planet(s2)
             if get_owner_id(nearp)==my_id \
                     and len(planet_enemies[nearp]) <= len(planet_friendlies[nearp]):
-                c *= 0.3
+                c *= 0.25
             else:
-                c *= 1.0
+                c *= 1.5
         if n_players == 4:
             c *= centrality[s2]
         return c
@@ -291,6 +294,10 @@ while True:
         if len(near_live_enemies) == 0 or len(near_friends) > len(near_live_enemies):
             return original_target
 
+        global early_game
+        if early_game:
+            early_game = False
+
         def h(p):
             want_close = pos_dist(original_target, p) if original_target else 0
             if near_friends:
@@ -327,19 +334,20 @@ while True:
             pl_counts[be] += 1
         ship_entity_combos.append((be, s))
 
+    if len(live_enemy_ships) == 0:
+        early_game = False
+    
     # dock ships that can
     docking = set()
     for best_entity, ship in ship_entity_combos:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
-            if n_players == 2 and len(enemy_ships)==len(live_enemy_ships) \
-                    and not ever_docked:
+            if n_players == 2 and len(live_enemy_ships)>=len(live_ships)-len(docking) \
+                    and early_game and nearest_ship_dist(ship) < 200:
                 continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)
-            if not ever_docked:
-                ever_docked = True
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 

@@ -9,6 +9,8 @@ import math
 
 game = hlt.Game("EB15")
 
+ever_docked = False
+
 while True:
     game_map = game.update_map()
     t_start = time.time()
@@ -103,7 +105,7 @@ while True:
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.08 * n)
         if not p.owner:
-            c *= 0.85
+            c *= 0.7
         if n_players == 4:
             c *= centrality[p]
         return c
@@ -111,12 +113,14 @@ while True:
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.15
+            c *= 0.2
         else:
             nearp = nearest_planet(s2)
             if get_owner_id(nearp)==my_id \
                     and len(planet_enemies[nearp]) <= len(planet_friendlies[nearp]):
-                c *= 0.3
+                c *= 0.2
+            else:
+                c *= 1.2
         if n_players == 4:
             c *= centrality[s2]
         return c
@@ -294,10 +298,10 @@ while True:
             e = hlt.entity.Position(p[0], p[1])
             closest = min(near_live_enemies, key=lambda ss: e.calculate_distance_between(ss))
             avoid_pos = (closest.x, closest.y)
-            if n_players==4 and len(live_ships)*4 < len(live_enemy_ships):
+            if n_players==4 and len(all_my_ships)*4 < len(enemy_ships):
                 runaway_k = 5
             else:
-                runaway_k = 1.2
+                runaway_k = 1.1
             return pos_dist(avoid_pos, p)*runaway_k - want_close
 
         thrusts = [7,5,3,1]
@@ -330,11 +334,12 @@ while True:
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
             if n_players == 2 and len(enemy_ships)==len(live_enemy_ships) \
-                    and nearest_ship_dist(ship) < 80 \
-                    and len(live_ships) - len(docking) == 3:
+                    and not ever_docked:
                 continue
             command_queue.append(ship.dock(best_entity))
             docking.add(ship)
+            if not ever_docked:
+                ever_docked = True
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 

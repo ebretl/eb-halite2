@@ -36,6 +36,8 @@ while True:
     command_queue = []
     nav_targets = dict()
 
+    all_entities = game_map.all_planets() + game_map._all_ships()
+
     all_my_ships = list(game_map.get_me().all_ships())
     ship_radius = 0.8
     for s in all_my_ships:
@@ -168,10 +170,10 @@ while True:
         if game_state==MyState.EARLY and pl_counts[p]:
                 if nearest_ship_dist(s) < 120:
                     c *= 0.01
-                    logging.info("enemies close, go to same planet")
+                    # logging.info("enemies close, go to same planet")
                 else:
                     c *= 1.3
-                    logging.info("enemies far, go to different planets")
+                    # logging.info("enemies far, go to different planets")
         return c
     
     def ship_ship_cost(s1, s2):
@@ -229,7 +231,7 @@ while True:
 
     def collided(x, y, r, t, obs_list=None, ignore=tuple()):
         if not obs_list:
-            obs_list = itertools.chain(game_map.all_planets(), game_map._all_ships())
+            obs_list = all_entities
         for obs in obs_list:
             if obs in nav_targets:
                 ox = obs.x + (nav_targets[obs][0] - obs.x) * t
@@ -243,19 +245,56 @@ while True:
                 return True
         return False
 
+    # def obstacles_between(pos1, pos2, ignore=tuple()):
+    #     n = 7
+    #     # obstacles = game_map.nearby_entities_by_distance(hlt.entity.Entity(pos2[0],pos2[1],0,0,0,0))[:8]
+    #     obstacles = sorted(game_map.all_planets()+game_map._all_ships(), 
+    #                         key=lambda o: o.calculate_distance_between(hlt.entity.Position(*pos2)))
+    #     obstacles = obstacles[:8]
+    #     for x,y,t in zip(np.linspace(pos1[0],pos2[0],n), 
+    #                      np.linspace(pos1[1],pos2[1],n),
+    #                      np.linspace(0.0, 1.0, n)):
+    #         # e = hlt.entity.Entity(x, y, ship_radius+1, 1,0,-1)
+    #         if collided(x, y, ship_radius, t, ignore=ignore, obs_list=obstacles):
+    #             return True
+    #     return False
+
     def obstacles_between(pos1, pos2, ignore=tuple()):
-        n = 7
-        # obstacles = game_map.nearby_entities_by_distance(hlt.entity.Entity(pos2[0],pos2[1],0,0,0,0))[:8]
-        obstacles = sorted(game_map.all_planets()+game_map._all_ships(), 
-                            key=lambda o: o.calculate_distance_between(hlt.entity.Position(*pos2)))
-        obstacles = obstacles[:8]
-        for x,y,t in zip(np.linspace(pos1[0],pos2[0],n), 
-                         np.linspace(pos1[1],pos2[1],n),
-                         np.linspace(0.0, 1.0, n)):
-            # e = hlt.entity.Entity(x, y, ship_radius+1, 1,0,-1)
-            if collided(x, y, ship_radius, t, ignore=ignore, obs_list=obstacles):
+        vel_x = pos2[0] - pos1[0]
+        vel_y = pos2[1] - pos1[1]
+        mag = pos_dist(pos1, pos2)
+        if mag > 7:
+            vel_x, vel_y = 7*vel_x/mag, 7*vel_y/mag
+        
+        for obs in all_entities:
+            if (obs.x, obs.y) in ignore:
+                continue
+            xdiff = pos1[0] - obs.x
+            ydiff = pos1[1] - obs.y
+            if obs in nav_targets:
+                vxdiff = vel_x - nav_targets[obs][0] + obs.x
+                vydiff = vel_y - nav_targets[obs][1] + obs.y
+            else:
+                vxdiff, vydiff = vel_x, vel_y
+            if vxdiff != 0 or vydiff != 0: 
+                t = -(xdiff*vxdiff + ydiff*vydiff) / (vxdiff**2 + vydiff**2)
+            else:
+                t = 0
+            if t < 0: t = 0
+            if t > 1: t = 1
+            x = pos1[0] + vel_x * t
+            y = pos1[1] + vel_y * t
+            if obs in nav_targets:
+                ox = obs.x + (nav_targets[obs][0] - obs.x) * t
+                oy = obs.y + (nav_targets[obs][1] - obs.y) * t
+            else:
+                ox, oy = obs.x, obs.y
+            if ((x-ox)**2+(y-oy)**2) <= (ship_radius+obs.radius)**2:
+                # collided
                 return True
         return False
+
+
 
     inbounds = lambda pos: pos[0]>ship_radius and pos[0]<game_map.width-ship_radius \
                        and pos[1]>ship_radius and pos[1]<game_map.height-ship_radius

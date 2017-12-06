@@ -6,8 +6,16 @@ import numpy as np
 import itertools
 import collections
 import math
+from enum import Enum
 
-game = hlt.Game("EB15")
+class MyState(Enum):
+    EARLY = 0
+    NORMAL = 1
+game_state = MyState.EARLY
+
+prev_poses = dict()
+
+game = hlt.Game("EB16")
 
 while True:
     game_map = game.update_map()
@@ -19,6 +27,9 @@ while True:
 
     def pos_dist(pos1, pos2):
         return ((pos1[0]-pos2[0])**2 + (pos1[1]-pos2[1])**2) ** 0.5
+
+    def ent_dist(e1, e2):
+        return e1.calculate_distance_between(e2)
 
     my_id = game_map.my_id
     n_players = len(game_map.all_players())
@@ -67,8 +78,35 @@ while True:
 
     ship_ratio = len(all_my_ships) / most_enemy_ships
 
-    is_2p_early_game = n_players == 2 and len(enemy_ships) == 3 \
-                    and len(all_my_ships) == 3
+    should_deal_with_attackers = []
+    if game_state == MyState.EARLY:
+        if n_players != 2 or len(all_my_ships) != 3:
+            game_state = MyState.NORMAL
+            logging.info("leaving early game state")
+        else:
+            attackers = []
+            for s in live_enemy_ships:
+                if s in prev_poses:
+                    dx = s.x - prev_poses[s].x
+                    dy = s.y - prev_poses[s].y
+                    h_travel = math.atan2(dy, dx)
+                    for my_s in all_my_ships:
+                        h_to_me = math.atan2(my_s.y-s.y, my_s.x-s.x)
+                        attack_thresh = 0.5
+                        towards = lambda h: h>h_to_me-attack_thresh and h<h_to_me+attack_thresh
+                        if any(towards(h) for h in (h_travel, h_travel+math.pi*2, h_travel-math.pi*2)) \
+                                and s not in attackers:
+                            attackers.append(s)
+
+            for sa in attackers:
+                for sm in sorted(live_ships, key=lambda s: ent_dist(s,sa)):
+                    if sm not in should_deal_with_attackers:
+                        should_deal_with_attackers.append(sm)
+                        break
+            
+
+    # is_2p_early_game = n_players == 2 and len(enemy_ships) == 3 \
+    #                 and len(all_my_ships) == 3
 
     get_owner_id = lambda pl: pl.owner.id if pl.owner else -1
 
@@ -103,6 +141,7 @@ while True:
         # logging.info("highest centrality is %f" % max(centrality.values()))
 
     pl_counts = collections.Counter()
+    entity_counts = collections.Counter()
 
     planet_enemies = dict()
     planet_friendlies = dict()
@@ -121,16 +160,18 @@ while True:
             c *= math.exp(0.09 * n_pl_targeting(p))
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.08 * n)
-        if not is_2p_early_game and not p.owner and p not in pl_counts \
-                and planet_safe(p) and nearest_ship_dist(s) > 170:
+        if game_state==MyState.NORMAL and not p.owner and p not in pl_counts \
+                and planet_safe(p) and nearest_ship_dist(s) > 120:
             c *= 0.5
         if n_players == 4:
             c *= centrality[p]
-        if is_2p_early_game and pl_counts[p]:
-                if nearest_ship_dist(s) < 170:
+        if game_state==MyState.EARLY and pl_counts[p]:
+                if nearest_ship_dist(s) < 120:
                     c *= 0.01
+                    logging.info("enemies close, go to same planet")
                 else:
                     c *= 1.3
+                    logging.info("enemies far, go to different planets")
         return c
     
     def ship_ship_cost(s1, s2):
@@ -144,6 +185,8 @@ while True:
                 c *= 0.1
             else:
                 c *= 1.5
+        if entity_counts[s2]:
+            c *= 0.7
         if n_players == 4:
             c *= centrality[s2]
         return c
@@ -266,8 +309,9 @@ while True:
                         ):
                     if obstacles_between(thisPos, nextPos, ignore=(pos1,)):
                         continue
-                    costs[nextPos] = costs[thisPos] + 1
-                    fringe.append((costs[thisPos]+1+(dist(nextPos)/7),
+                    costs[nextPos] = costs[thisPos] + 1 \
+                        + 1 / nearest_ship_dist(hlt.entity.Position(*thisPos))
+                    fringe.append((costs[nextPos] + (dist(nextPos)/7),
                                     nextPos[0], nextPos[1]))
                     parents[nextPos] = thisPos
         pos = pos2 if pos2 in parents else min(costs.keys(), key=dist)
@@ -346,6 +390,7 @@ while True:
     for s in sorted(live_ships, 
                     key=lambda ss: nearest_planet(ss).calculate_distance_between(ss)):
         be = best_entity(s)
+        entity_counts[be] += 1
         if is_planet(be):
             pl_counts[be] += 1
         ship_entity_combos.append((be, s))
@@ -356,10 +401,15 @@ while True:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
                 and planet_safe(best_entity):
-            if is_2p_early_game and nearest_ship_dist(ship) < 150 \
-                    and len(live_enemy_ships) >= len(live_ships) - len(docking):
+            # if is_2p_early_game and nearest_ship_dist(ship) < 150 \
+            #         and len(live_enemy_ships) >= len(live_ships) - len(docking):
+            #     continue
+            if game_state == MyState.EARLY and (
+                    ship in should_deal_with_attackers
+                    or nearest_ship_dist(ship) < 30
+            ):
                 continue
-            command_queue.append(ship.dock(best_entity))
+            command_queue.append(ship.dock(best_entity)) 
             docking.add(ship)
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
@@ -369,7 +419,13 @@ while True:
             break
 
         if ship not in docking:
-            # checkpoint(str(i))
+            if n_players == 2 and ship.id == min(s.id for s in live_ships):
+                if len(enemy_ships) == len(live_enemy_ships):
+                    greedy = min(enemy_ships, key=lambda s: ship.calculate_distance_between(s))
+                else:
+                    greedy = min((s for s in enemy_ships if s.docking_status!=s.DockingStatus.UNDOCKED),
+                                      key=lambda s: ship.calculate_distance_between(s))
+
             if is_planet(best_entity):
                 if not planet_safe(best_entity):
                     best_entity = min(

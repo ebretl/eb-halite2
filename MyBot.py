@@ -397,10 +397,8 @@ while True:
         near_live_enemies = [s for s in live_enemy_ships 
                              if ship.calculate_distance_between(s) <= 30]
 
-        if len(near_live_enemies) == 0 or len(near_friends) > len(near_live_enemies):
-            timeLimit = 0.04
-            nextPos = search((ship.x, ship.y), original_target, timeLimit)
-            return nextPos
+        # if len(near_live_enemies) == 0 or len(near_friends) > len(near_live_enemies):
+        #     return original_target
 
         def h(p):
             want_close = pos_dist(original_target, p) if original_target else 0

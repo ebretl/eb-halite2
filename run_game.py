@@ -4,20 +4,29 @@ import subprocess
 from selenium.webdriver import Chrome
 from selenium.common.exceptions import WebDriverException
 import time
+import random
 
-assert len(sys.argv) >= 3
+assert len(sys.argv) in (3,5)
 
 player_args = []
 for bot_path in sys.argv[1:]:
     player_args.append("python3 %s" % bot_path)
 
-print(player_args)
+random.shuffle(player_args)
+# print(player_args)
 
 for bytes_line in subprocess.Popen(["./halite"]+player_args, stdout=subprocess.PIPE).stdout:
     line = bytes_line.decode().replace('\n','')
     if "Opening a file at" in line:
         replay_path = line.split(" ")[4]
-    print(line)
+        print(line)
+    elif line[:4] == "Turn":
+        sys.stdout.write("\r%s" % line.split(" ")[1])
+    elif line[:3] == "Map":
+        sys.stdout.write("\n")
+        print(line)
+    else:
+        print(line)
 
 replay_path = os.path.abspath(replay_path)
 

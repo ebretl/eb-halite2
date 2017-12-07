@@ -39,7 +39,7 @@ while True:
     all_entities = game_map.all_planets() + game_map._all_ships()
 
     all_my_ships = list(game_map.get_me().all_ships())
-    ship_radius = 0.75
+    ship_radius = 0.7
     for s in all_my_ships:
         s.radius = ship_radius
 
@@ -61,8 +61,6 @@ while True:
     #                 other_cluster.add(ship)
     #             else:
     #                 my_clusters.append(set([ship]))
-            
-
 
     enemy_ships = []
     live_enemy_ships = []
@@ -80,30 +78,38 @@ while True:
 
     ship_ratio = len(all_my_ships) / most_enemy_ships
 
+    def compare_angle(h1, h2, thresh):
+        pi2 = 2 * math.pi
+        a1 = (h2 - h1) % pi2
+        a2 = pi2 - a1
+        return min(a1, a2) < thresh
+
     should_deal_with_attackers = []
     if game_state == MyState.EARLY:
-        if n_players != 2 or len(all_my_ships) != 3:
+        # if n_players != 2 or len(all_my_ships) != 3:
+        if len(all_my_ships) != 3:
             game_state = MyState.NORMAL
             logging.info("leaving early game state")
         else:
             attackers = []
             for s in live_enemy_ships:
-                if s in prev_poses:
-                    dx = s.x - prev_poses[s].x
-                    dy = s.y - prev_poses[s].y
+                if s.id in prev_poses:
+                    dx = s.x - prev_poses[s.id][0]
+                    dy = s.y - prev_poses[s.id][1]
                     h_travel = math.atan2(dy, dx)
+                    mag_travel = (dx*dx+dy*dy)**0.5
                     for my_s in all_my_ships:
                         h_to_me = math.atan2(my_s.y-s.y, my_s.x-s.x)
-                        attack_thresh = 0.5
-                        towards = lambda h: h>h_to_me-attack_thresh and h<h_to_me+attack_thresh
-                        if any(towards(h) for h in (h_travel, h_travel+math.pi*2, h_travel-math.pi*2)) \
-                                and s not in attackers:
+                        if compare_angle(h_travel, h_to_me, 0.5) \
+                                and mag_travel > 1 and s not in attackers:
                             attackers.append(s)
+                prev_poses[s.id] = (s.x, s.y)
 
             for sa in attackers:
                 for sm in sorted(live_ships, key=lambda s: ent_dist(s,sa)):
                     if sm not in should_deal_with_attackers:
                         should_deal_with_attackers.append(sm)
+                        logging.info("%d wary of enemy %d" % (sm.id,sa.id))
                         break
             
 
@@ -302,7 +308,6 @@ while True:
         return False
 
 
-
     inbounds = lambda pos: pos[0]>ship_radius and pos[0]<game_map.width-ship_radius \
                        and pos[1]>ship_radius and pos[1]<game_map.height-ship_radius
 
@@ -318,55 +323,53 @@ while True:
                 theta += math.pi / 8
         return out
     
-    # logging.info(str(succ((20, 20))))
-    
-    def search(pos1, pos2, timeLimit=0.1):
-        def dist(p):
-            return ((p[0]-pos2[0])**2+(p[1]-pos2[1])**2)**0.5
+    # def search(pos1, pos2, timeLimit=0.1):
+    #     def dist(p):
+    #         return ((p[0]-pos2[0])**2+(p[1]-pos2[1])**2)**0.5
 
-        searchTimeStart = time.time()
-        fringe = [(0, pos1[0], pos1[1])]
-        visited = set()
-        def visit(pos, update=False):
-            k = 3
-            if (pos[0]//k, pos[1]//k) in visited:
-                return True
-            if update:
-                visited.add((pos[0]//k, pos[1]//k))
-            return False
-        costs = dict()
-        costs[pos1] = 0
-        parents = dict()
-        while len(fringe) > 0 and time.time()-searchTimeStart < timeLimit:
-            _, thisX, thisY = fringe.pop( np.argmin(fringe, axis=0)[0] )
-            thisPos = (thisX, thisY)
-            # logging.info("len(fringe) = %d" % len(fringe))
-            if dist(thisPos) <= 7 \
-                    and not obstacles_between(thisPos, pos2, ignore=(pos1,)):
-                parents[pos2] = thisPos
-                break
-            if visit(thisPos, update=True):
-                continue
-            for nextPos in succ(thisPos, ignore=(pos1,)):
-                if (not visit(nextPos, update=False)) \
-                        and (
-                            (not nextPos in costs) 
-                            or (costs[thisPos]+1 < costs[nextPos])
-                        ):
-                    if obstacles_between(thisPos, nextPos, ignore=(pos1,)):
-                        continue
-                    costs[nextPos] = costs[thisPos] + 1 \
-                        + 1 / nearest_ship_dist(hlt.entity.Position(*thisPos))
-                    fringe.append((costs[nextPos] + (dist(nextPos)/7),
-                                    nextPos[0], nextPos[1]))
-                    parents[nextPos] = thisPos
-        pos = pos2 if pos2 in parents else min(costs.keys(), key=dist)
-        while pos in parents:
-            if parents[pos] == pos1:
-                return pos
-            pos = parents[pos]
-        # logging.info("found no route from %s to %s"%(str(pos1),str(pos2)))
-        return None
+    #     searchTimeStart = time.time()
+    #     fringe = [(0, pos1[0], pos1[1])]
+    #     visited = set()
+    #     def visit(pos, update=False):
+    #         k = 3
+    #         if (pos[0]//k, pos[1]//k) in visited:
+    #             return True
+    #         if update:
+    #             visited.add((pos[0]//k, pos[1]//k))
+    #         return False
+    #     costs = dict()
+    #     costs[pos1] = 0
+    #     parents = dict()
+    #     while len(fringe) > 0 and time.time()-searchTimeStart < timeLimit:
+    #         _, thisX, thisY = fringe.pop( np.argmin(fringe, axis=0)[0] )
+    #         thisPos = (thisX, thisY)
+    #         # logging.info("len(fringe) = %d" % len(fringe))
+    #         if dist(thisPos) <= 7 \
+    #                 and not obstacles_between(thisPos, pos2, ignore=(pos1,)):
+    #             parents[pos2] = thisPos
+    #             break
+    #         if visit(thisPos, update=True):
+    #             continue
+    #         for nextPos in succ(thisPos, ignore=(pos1,)):
+    #             if (not visit(nextPos, update=False)) \
+    #                     and (
+    #                         (not nextPos in costs) 
+    #                         or (costs[thisPos]+1 < costs[nextPos])
+    #                     ):
+    #                 if obstacles_between(thisPos, nextPos, ignore=(pos1,)):
+    #                     continue
+    #                 costs[nextPos] = costs[thisPos] + 1 \
+    #                     + 1 / nearest_ship_dist(hlt.entity.Position(*thisPos))
+    #                 fringe.append((costs[nextPos] + (dist(nextPos)/7),
+    #                                 nextPos[0], nextPos[1]))
+    #                 parents[nextPos] = thisPos
+    #     pos = pos2 if pos2 in parents else min(costs.keys(), key=dist)
+    #     while pos in parents:
+    #         if parents[pos] == pos1:
+    #             return pos
+    #         pos = parents[pos]
+    #     # logging.info("found no route from %s to %s"%(str(pos1),str(pos2)))
+    #     return None
 
     def closest_point(src, dst):
         theta = 0
@@ -390,10 +393,15 @@ while True:
     def is_ship(e):
         return type(e) == hlt.entity.Ship
 
+    def opt_dist(e,ss):
+        p1 = e.x, e.y
+        p2 = nav_targets[ss] if ss in nav_targets else (ss.x,ss.y)
+        return pos_dist(p1, p2)
+
     # original_target is a (x,y) tuple
     def micro_policy(ship, original_target):
         near_friends = [s for s in live_ships 
-                        if ship.calculate_distance_between(s) <= 30]
+                        if s!=ship and ship.calculate_distance_between(s) <= 30]
         near_live_enemies = [s for s in live_enemy_ships 
                              if ship.calculate_distance_between(s) <= 30]
 
@@ -401,24 +409,41 @@ while True:
         #     return original_target
 
         def h(p):
-            want_close = pos_dist(original_target, p) if original_target else 0
-            if near_friends:
-                want_close += min(ent_dist(ship,ss) for ss in near_friends) * 1.05
+            if n_players!=2:
+                if ship_ratio < 1/4:
+                    k_runaway = 1
+                    k_target = 0.1
+                    k_friends = 0
+                else:
+                    k_runaway = 1.2
+                    k_target = 1
+                    k_friends = 0.1
+            else: # 2 players
+                k_runaway = 1.01
+                k_target = 1
+                # k_friends = math.exp((1 - ship_ratio) / 4)
+                k_friends = 0.1
+
+            target_score = pos_dist(original_target, p) if original_target else 0
+            target_score *= k_target
+
+            if near_friends and k_friends:
+                friend_score = min(opt_dist(ship,ss) for ss in near_friends) * k_friends
+                # friend_score = sum(1 / (opt_dist(ship,ss)**2) for ss in near_friends) * k_friends
+            else:
+                friend_score = 0
+
             if len(near_friends) > len(near_live_enemies):
                 avoid_score = 0
-            elif near_live_enemies:
+            elif near_live_enemies and k_runaway:
                 e = hlt.entity.Position(p[0], p[1])
                 closest = min(near_live_enemies, key=lambda ss: ent_dist(e,ss))
                 avoid_pos = (closest.x, closest.y)
-                if n_players!=2 and ship_ratio < 1/4:
-                    runaway_k = 1
-                    want_close = 0
-                else:
-                    runaway_k = 1.2
-                avoid_score = pos_dist(avoid_pos, p)*runaway_k
+                avoid_score = pos_dist(avoid_pos, p) * k_runaway
             else:
                 avoid_score = 0
-            return avoid_score - want_close
+            
+            return avoid_score - target_score - friend_score
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)
@@ -504,9 +529,9 @@ while True:
                     a = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
                             key=lambda s: ship.calculate_distance_between(s))
                     angle = a.calculate_angle_between(ship)
-                    nx += 3 * math.cos(math.radians(angle))
-                    ny += 3 * math.sin(math.radians(angle))
-                    if not collided(nx, ny, ship.radius, 1):
+                    nx = ship.x + 3 * math.cos(math.radians(angle))
+                    ny = ship.y + 3 * math.sin(math.radians(angle))
+                    if inbounds((nx,ny)) and not collided(nx, ny, ship.radius, 1):
                         cmd = ship.thrust(3, angle)
                         command_queue.append(cmd)
                         nav_targets[ship] = (nx, ny)

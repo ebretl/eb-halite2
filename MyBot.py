@@ -32,9 +32,11 @@ while True:
         return e1.calculate_distance_between(e2)
 
     my_id = game_map.my_id
-    n_players = len(game_map.all_players())
+    n_players = sum(1 if play.all_ships() else 0 for play in game_map.all_players())
     command_queue = []
     nav_targets = dict()
+
+    logging.info(str(n_players))
 
     all_entities = game_map.all_planets() + game_map._all_ships()
 
@@ -175,14 +177,14 @@ while True:
         n = len(planet_enemies[p]) - len(planet_friendlies[p])
         c *= math.exp(0.08 * n)
         if game_state==MyState.NORMAL and not p.owner and p not in pl_counts \
-                and planet_safe(p) and nearest_ship_dist(s) > 120:
+                and nearest_ship_dist(p) > 120 and nearest_ship_dist(s) > 120:
             c *= 0.5
         # if get_owner_id(p)==my_id and not planet_safe(p):
         #     c *= 0.2
         if n_players != 2:
             c *= centrality[p]
         if game_state==MyState.EARLY and pl_counts[p]:
-                if nearest_ship_dist(s) < 120:
+                if min(ent_dist(s,ss) for ss in enemy_ships) < 120:
                     c *= 0.01
                     # logging.info("enemies close, go to same planet")
                 else:
@@ -192,8 +194,11 @@ while True:
     
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
-        if s2.docking_status!=s2.DockingStatus.UNDOCKED:
-            c *= 0.13
+        if s2.docking_status != s2.DockingStatus.UNDOCKED:
+            if n_players == 2:
+                c *= 0.1
+            else:
+                c *= 0.1
         else:
             nearp = nearest_planet(s2)
             if get_owner_id(nearp)==my_id \
@@ -203,7 +208,7 @@ while True:
             else:
                 c *= 1.5
         if entity_counts[s2]:
-            c *= 0.7
+            c *= 0.8
         if n_players != 2:
             c *= centrality[s2]
         return c
@@ -409,17 +414,17 @@ while True:
         #     return original_target
 
         def h(p):
-            if n_players!=2:
-                if ship_ratio < 1/4:
+            if n_players != 2:
+                if ship_ratio < 1/3:
                     k_runaway = 1
                     k_target = 0.1
                     k_friends = 0
                 else:
                     k_runaway = 1.2
                     k_target = 1
-                    k_friends = 0.1
+                    k_friends = 0.05
             else: # 2 players
-                k_runaway = 1.01
+                k_runaway = 1.2
                 k_target = 1
                 # k_friends = math.exp((1 - ship_ratio) / 4)
                 k_friends = 0.1
@@ -444,6 +449,7 @@ while True:
                 avoid_score = 0
             
             return avoid_score - target_score - friend_score
+
 
         thrusts = [7,5,3,1]
         angles = np.arange(0, 2*math.pi, math.pi/12)
@@ -493,12 +499,15 @@ while True:
             break
 
         if ship not in docking:
-            if n_players == 2 and ship.id == min(s.id for s in live_ships):
-                if len(enemy_ships) == len(live_enemy_ships):
-                    greedy = min(enemy_ships, key=lambda s: ship.calculate_distance_between(s))
-                else:
-                    greedy = min((s for s in enemy_ships if s.docking_status!=s.DockingStatus.UNDOCKED),
-                                      key=lambda s: ship.calculate_distance_between(s))
+            # if n_players == 2 and ship.id == min(s.id for s in live_ships):
+            #     if len(enemy_ships) == len(live_enemy_ships):
+            #         greedy = min(enemy_ships, key=lambda s: ship.calculate_distance_between(s))
+            #     else:
+            #         greedy = min((s for s in enemy_ships if s.docking_status!=s.DockingStatus.UNDOCKED),
+            #                           key=lambda s: ship.calculate_distance_between(s))
+
+            if ship in should_deal_with_attackers:
+                best_entity = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
 
             if is_planet(best_entity):
                 if not planet_safe(best_entity):

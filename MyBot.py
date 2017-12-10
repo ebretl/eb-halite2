@@ -36,7 +36,7 @@ while True:
     command_queue = []
     nav_targets = dict()
 
-    logging.info(str(n_players))
+    # logging.info(str(n_players))
 
     all_entities = game_map.all_planets() + game_map._all_ships()
 
@@ -158,9 +158,9 @@ while True:
         planet_friendlies[p] = [s for s in live_ships
                 if p.calculate_distance_between(s) < p.radius+40]
 
-    def planet_safe(pl):
+    def planet_safe(pl, n_dock=0):
         return len(planet_enemies[pl]) == 0 \
-            or len(planet_friendlies[pl]) >= 1.5 * len(planet_enemies[pl])
+            or len(planet_friendlies[pl]) - n_dock >= 1.5 * len(planet_enemies[pl])
 
 
     # unsafe = set(p for p in owned if not planet_safe(p))
@@ -196,14 +196,13 @@ while True:
         c = s1.calculate_distance_between(s2)
         if s2.docking_status != s2.DockingStatus.UNDOCKED:
             if n_players == 2:
-                c *= 0.1
+                c *= 0.15
             else:
-                c *= 0.1
+                c *= 0.15
         else:
             nearp = nearest_planet(s2)
-            if get_owner_id(nearp)==my_id \
-                    and len(planet_enemies[nearp]) <= len(planet_friendlies[nearp]) \
-                    and len(planet_enemies[nearp]) != 0:
+            if get_owner_id(nearp) == my_id \
+                    and any(s2==(ss.x,ss.y) for ss in planet_enemies[nearp]):
                 c *= 0.2
             else:
                 c *= 1.5
@@ -422,12 +421,12 @@ while True:
                 else:
                     k_runaway = 1.2
                     k_target = 1
-                    k_friends = 0.05
+                    k_friends = 0
             else: # 2 players
                 k_runaway = 1.2
                 k_target = 1
                 # k_friends = math.exp((1 - ship_ratio) / 4)
-                k_friends = 0.1
+                k_friends = 0
 
             target_score = pos_dist(original_target, p) if original_target else 0
             target_score *= k_target
@@ -451,8 +450,8 @@ while True:
             return avoid_score - target_score - friend_score
 
 
-        thrusts = [7,5,3,1]
-        angles = np.arange(0, 2*math.pi, math.pi/12)
+        thrusts = [2.0, 3.67, 5.33, 7.0]
+        angles = np.linspace(0, 2*math.pi, 16)
         pos1 = (ship.x, ship.y)
         best_pos = pos1
         best_sep = h(pos1)
@@ -477,10 +476,11 @@ while True:
     
     # dock ships that can
     docking = set()
+    docking_planets = collections.Counter()
     for best_entity, ship in ship_entity_combos:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
-                and planet_safe(best_entity):
+                and planet_safe(best_entity, n_dock=docking_planets[best_entity]):
             # if is_2p_early_game and nearest_ship_dist(ship) < 150 \
             #         and len(live_enemy_ships) >= len(live_ships) - len(docking):
             #     continue
@@ -491,6 +491,7 @@ while True:
                 continue
             command_queue.append(ship.dock(best_entity)) 
             docking.add(ship)
+            docking_planets[best_entity] += 1
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 
@@ -499,6 +500,8 @@ while True:
             break
 
         if ship not in docking:
+            # checkpoint(str(i))
+
             # if n_players == 2 and ship.id == min(s.id for s in live_ships):
             #     if len(enemy_ships) == len(live_enemy_ships):
             #         greedy = min(enemy_ships, key=lambda s: ship.calculate_distance_between(s))
@@ -510,7 +513,7 @@ while True:
                 best_entity = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
 
             if is_planet(best_entity):
-                if not planet_safe(best_entity):
+                if not planet_safe(best_entity, n_dock=docking_planets[best_entity]):
                     best_entity = min(
                         planet_enemies[best_entity],
                         key=lambda s: best_entity.calculate_distance_between(s)
@@ -538,20 +541,23 @@ while True:
                     a = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
                             key=lambda s: ship.calculate_distance_between(s))
                     angle = a.calculate_angle_between(ship)
-                    nx = ship.x + 3 * math.cos(math.radians(angle))
-                    ny = ship.y + 3 * math.sin(math.radians(angle))
-                    if inbounds((nx,ny)) and not collided(nx, ny, ship.radius, 1):
+                    nx = ship.x + 1.5 * math.cos(math.radians(angle))
+                    ny = ship.y + 1.5 * math.sin(math.radians(angle))
+                    logging.info("trying fallback planner")
+                    if inbounds((nx,ny)) and not collided(nx, ny, 1.5, 1, ignore=[(ship.x,ship.y)]):
                         cmd = ship.thrust(3, angle)
                         command_queue.append(cmd)
                         nav_targets[ship] = (nx, ny)
+                        logging.info("used fallback planner")
 
     if len(command_queue) == 0:
         command_queue.append(game_map.get_me().all_ships()[0].thrust(0,0))
 
-    # for s1,s2 in itertools.combinations(live_ships, 2):
-    #     s1 = nav_targets[s1] if s1 in nav_targets else (s1.x,s1.y)
-    #     s2 = nav_targets[s2] if s2 in nav_targets else (s2.x,s2.y)
-    #     assert pos_dist(s1,s2) > ship_radius
+    # for ship in live_ships:
+    #     if ship in nav_targets:
+    #         p1 = ship.x, ship.y
+    #         p2 = nav_targets[ship]
+    #         assert not obstacles_between(p1, p2, ignore=(p1,))
     
     game.send_command_queue(command_queue)
 

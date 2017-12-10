@@ -12,7 +12,7 @@ plt.ion()
 
 UNDOCKED = hlt.entity.Ship.DockingStatus.UNDOCKED
 
-game = hlt.Game("EB16")
+game = hlt.Game("im different")
 
 while True:
     game_map = game.update_map()
@@ -21,9 +21,10 @@ while True:
     me = game_map.get_me()
 
     all_entities = game_map._all_ships() + game_map.all_planets()
+    random.shuffle(all_entities)
 
     all_my_ships = list(game_map.get_me().all_ships())
-    # ship_radius = 0.8
+    ship_radius = 0.7
     # for s in all_my_ships:
     #     s.radius = ship_radius
 
@@ -90,11 +91,16 @@ while True:
         ent_values[ent] = v
 
 
-    def pos_value(pos):
-        return sum((
-            ent_values[e] / (pos_dist(pos,(e.x,e.y)) + 0.1)
-            for e in all_entities
-        ))
+    def max_val_target(pos):
+        vs = [ent_values[e] / pos_dist(pos,(e.x,e.y))
+                for e in all_entities if (e.x,e.y)!=pos]
+        i = np.argmax(vs)
+        return vs[i], all_entities[i]
+
+    def pos_val(pos):
+        vs = [ent_values[e] / pos_dist(pos,(e.x,e.y))
+                for e in all_entities if (e.x,e.y) != pos]
+        return sum(vs)
 
     # mapvis = []
     # for y in range(0, game_map.height, 4):
@@ -105,23 +111,70 @@ while True:
     # plt.show()
     # plt.pause(0.1)
 
+    inbounds = lambda pos: pos[0]>ship_radius and pos[0]<game_map.width-ship_radius \
+                       and pos[1]>ship_radius and pos[1]<game_map.height-ship_radius
+
     nav_targets = dict()
 
-    def obstacles_between(pos1, pos2):
-        for e in all_entities:
-            
+    def obstacles_between(pos1, pos2, ignore=tuple()):
+        vel_x = pos2[0] - pos1[0]
+        vel_y = pos2[1] - pos1[1]
+        
+        for obs in all_entities:
+            if (obs.x, obs.y) in ignore:
+                continue
+            xdiff = pos1[0] - obs.x
+            ydiff = pos1[1] - obs.y
+            if obs in nav_targets:
+                vxdiff = vel_x - nav_targets[obs][0] + obs.x
+                vydiff = vel_y - nav_targets[obs][1] + obs.y
+            else:
+                vxdiff, vydiff = vel_x, vel_y
+            if vxdiff != 0 or vydiff != 0: 
+                t = -(xdiff*vxdiff + ydiff*vydiff) / (vxdiff**2 + vydiff**2)
+            else:
+                t = 0
+            if t < 0: t = 0
+            if t > 1: t = 1
+            x = pos1[0] + vel_x * t
+            y = pos1[1] + vel_y * t
+            if obs in nav_targets:
+                ox = obs.x + (nav_targets[obs][0] - obs.x) * t
+                oy = obs.y + (nav_targets[obs][1] - obs.y) * t
+            else:
+                ox, oy = obs.x, obs.y
+            if ((x-ox)**2+(y-oy)**2) <= (ship_radius+obs.radius)**2:
+                # collided
+                return True
+        return False
 
     command_queue = []
+
     for ship in live_ships:
-        thrusts = [7,5,3,1]
-        angles = np.arange(0, 2*math.pi, math.pi/12)
+        if time.time() - t_start > 1.3:
+            break
+
+        thrusts = [2.0, 3.25, 4.5, 5.75, 7.0]
+        angles = list(np.arange(0, 2*math.pi, math.pi/12))
         pos1 = (ship.x, ship.y)
         best_pos = pos1
-        best_sep = h(pos1)
+        # best_val, _ = max_val_target(pos1)
+        best_val = pos_val(pos1)
         for t,a in itertools.product(thrusts, angles):
             pos2 = ship.x+t*math.cos(a), ship.y+t*math.sin(a)
-            if not obstacles_between(pos1, pos2, ignore=pos1) \
-                    and h(pos2) > best_sep \
+            if not obstacles_between(pos1, pos2, ignore=(pos1,)) \
                     and inbounds(pos2):
-                best_pos = pos2
-                best_sep = h(pos2)
+                # v, _ = max_val_target(pos2)
+                v = pos_val(pos2)
+                if v > best_val:
+                    best_pos = pos2
+                    best_val = v
+
+        if best_pos != pos1:
+            nav_targets[ship] = best_pos
+            a = math.atan2(best_pos[1]-pos1[1], best_pos[0]-pos1[0])
+            t = pos_dist(pos1, pos2)
+            command_queue.append(ship.thrust(int(t), math.degrees(a)))
+            assert not obstacles_between(pos1, best_pos, ignore=(pos1,))
+
+    game.send_command_queue(command_queue)

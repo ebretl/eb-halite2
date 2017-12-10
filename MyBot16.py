@@ -15,7 +15,7 @@ game_state = MyState.EARLY
 
 prev_poses = dict()
 
-game = hlt.Game("EB17")
+game = hlt.Game("EB16")
 
 while True:
     game_map = game.update_map()

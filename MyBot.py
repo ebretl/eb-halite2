@@ -46,7 +46,7 @@ while True:
     all_entities = game_map.all_planets() + game_map._all_ships()
 
     all_my_ships = list(game_map.get_me().all_ships())
-    ship_radius = 0.7
+    ship_radius = 0.6
     for s in all_my_ships:
         s.radius = ship_radius
 
@@ -203,7 +203,7 @@ while True:
             for pl in owned:
                 if get_owner_id(pl) == my_id and ent_dist(s2,pl) < 40:
                     c *= 0.1
-                    logging.info("protecting planet")
+                    # logging.info("protecting planet")
                     break
             else:
                 c *= 1.5
@@ -249,26 +249,25 @@ while True:
         else:
             return None
 
-    def collided(x, y, r, t, obs_list=None, ignore=tuple()):
-        if not obs_list:
-            obs_list = all_entities
-        for obs in obs_list:
+    def collided(x, y, r, t, ignore_list):
+        for obs in all_entities:
             if obs in nav_targets:
                 ox = obs.x + (nav_targets[obs][0] - obs.x) * t
                 oy = obs.y + (nav_targets[obs][1] - obs.y) * t
             else:
                 ox, oy = obs.x, obs.y
             if ((x-ox)**2+(y-oy)**2) <= (r+obs.radius)**2 \
-                    and (obs.x,obs.y) not in ignore:
+                    and (obs.x,obs.y) not in ignore_list:
                 return True
         return False
 
-    def obstacles_between(pos1, pos2, ignore=tuple()):
+    def obstacles_between(pos1, pos2):
         vel_x = pos2[0] - pos1[0]
         vel_y = pos2[1] - pos1[1]
         
         for obs in all_entities:
-            if (obs.x, obs.y) in ignore:
+            opos = (obs.x, obs.y)
+            if opos == pos1 or pos_dist(pos1,opos) > 50:
                 continue
             xdiff = pos1[0] - obs.x
             ydiff = pos1[1] - obs.y
@@ -309,7 +308,7 @@ while True:
         while theta < math.pi:
             x = idealX + r * (math.cos(phi) - math.cos(phi+theta))
             y = idealY + r * (math.sin(phi) - math.sin(phi+theta))
-            if not collided(x, y, src.radius, 1, ignore=((src.x,src.y),)):
+            if not collided(x, y, src.radius, 1, ((src.x,src.y),)):
                 return hlt.entity.Position(x,y)
             # logging.info("theta = %.2f collided" % theta)
             theta += math.pi / 10 if theta >= 0 else 0
@@ -340,7 +339,7 @@ while True:
                     k_target = 1
                     k_friends = 0
             else: # 2 players
-                k_runaway = 1.05
+                k_runaway = 0.97 + random.random()*0.08
                 k_target = 1
                 # k_friends = math.exp((1 - ship_ratio) / 4)
                 k_friends = 0.25
@@ -367,14 +366,14 @@ while True:
             return avoid_score - target_score - friend_score
 
 
-        thrusts = [2.0, 3.67, 5.33, 7.0]
-        angles = np.linspace(0, 2*math.pi, 16)
+        thrusts = [2, 4, 6, 7]
+        angles = [math.radians(a) for a in range(0,360,20)]
         pos1 = (ship.x, ship.y)
         best_pos = pos1
         best_sep = h(pos1)
         for t,a in itertools.product(thrusts, angles):
             pos2 = ship.x+t*math.cos(a), ship.y+t*math.sin(a)
-            if not obstacles_between(pos1, pos2, ignore=(pos1,)) \
+            if not obstacles_between(pos1, pos2) \
                     and h(pos2) > best_sep \
                     and inbounds(pos2):
                 best_pos = pos2
@@ -452,7 +451,7 @@ while True:
                 if nextPos:
                     nx, ny = nextPos
                     mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
-                    cmd = ship.thrust(int(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
+                    cmd = ship.thrust(round(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
                     command_queue.append(cmd)
                     nav_targets[ship] = nextPos
                 else:
@@ -463,7 +462,7 @@ while True:
                     nx = ship.x + step * math.cos(math.radians(angle))
                     ny = ship.y + step * math.sin(math.radians(angle))
                     # logging.info("trying fallback planner")
-                    if inbounds((nx,ny)) and not collided(nx, ny, 1.5, 1, ignore=[(ship.x,ship.y)]):
+                    if inbounds((nx,ny)) and not collided(nx, ny, 1.5, 1, [(ship.x,ship.y)]):
                         cmd = ship.thrust(step, angle)
                         command_queue.append(cmd)
                         nav_targets[ship] = (nx, ny)

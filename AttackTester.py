@@ -15,7 +15,7 @@ game_state = MyState.EARLY
 
 prev_poses = dict()
 
-game = hlt.Game("EB16")
+game = hlt.Game("attack_bot")
 
 while True:
     game_map = game.update_map()
@@ -91,39 +91,31 @@ while True:
         a2 = pi2 - a1
         return min(a1, a2) < thresh
 
-    should_deal_with_attackers = set()
-    should_avoid_attackers = set()
+    should_deal_with_attackers = []
     if game_state == MyState.EARLY:
         # if n_players != 2 or len(all_my_ships) != 3:
-        if len(enemy_ships) > 3 or len(live_ships) > 6:
+        if len(all_my_ships) != 3:
             game_state = MyState.NORMAL
             logging.info("leaving early game state")
         else:
-            attackers = dict() # ship -> heading
+            attackers = []
             for s in live_enemy_ships:
                 if s.id in prev_poses:
                     dx = s.x - prev_poses[s.id][0]
                     dy = s.y - prev_poses[s.id][1]
-                    # logging.info("dy = %f, dx = %f" % (dy,dx))
                     h_travel = math.atan2(dy, dx)
                     mag_travel = (dx*dx+dy*dy)**0.5
                     for my_s in all_my_ships:
                         h_to_me = math.atan2(my_s.y-s.y, my_s.x-s.x)
                         if compare_angle(h_travel, h_to_me, 0.5) \
                                 and mag_travel > 1 and s not in attackers:
-                            # logging.info("%f ~ %f" % (h_travel, h_to_me))
-                            attackers[s] = h_travel
-                    # logging.info("(%.2f, %.2f) over (%.2f, %.2f)" % ((s.x,s.y)+prev_poses[s.id]))
-                prev_poses[s.id] = (float(s.x), float(s.y))
+                            attackers.append(s)
+                prev_poses[s.id] = (s.x, s.y)
 
-            for sa, h in attackers.items():
+            for sa in attackers:
                 for sm in sorted(live_ships, key=lambda s: ent_dist(s,sa)):
-                    h_to_me = math.atan2(sm.y-s.y, sm.x-s.x)
-                    if sm not in should_deal_with_attackers | should_avoid_attackers:
-                        if compare_angle(h, h_to_me, 1.2) and ent_dist(sa,sm)<150:
-                            should_deal_with_attackers.add(sm)
-                        else:
-                            should_avoid_attackers.add(sm)
+                    if sm not in should_deal_with_attackers:
+                        should_deal_with_attackers.append(sm)
                         logging.info("%d wary of enemy %d" % (sm.id,sa.id))
                         break
             
@@ -182,43 +174,14 @@ while True:
         return pl_counts[pl] + len(pl.all_docked_ships())
 
     def ship_planet_cost(s, p):
-        c = s.calculate_distance_between(p) / p.num_docking_spots
-        if p in pl_counts:
-            c *= math.exp(0.09 * n_pl_targeting(p))
-        n = len(ent_enemies(p,30)) - len(ent_friendlies(p,30))
-        c *= math.exp(0.08 * n)
-        if game_state==MyState.NORMAL and not p.owner and p not in pl_counts \
-                and nearest_ship_dist(p) > 120 and nearest_ship_dist(s) > 120:
-            c *= 0.5
-        # if get_owner_id(p)==my_id and not planet_safe(p):
-        #     c *= 0.2
-        if n_players != 2:
-            c *= centrality[p]
-        if game_state==MyState.EARLY and pl_counts[p]:
-                if min(ent_dist(s,ss) for ss in enemy_ships) < 120:
-                    c *= 0.01
-                    # logging.info("enemies close, go to same planet")
-                else:
-                    c *= 1.3
-                    # logging.info("enemies far, go to different planets")
-        return c
+        return 10000
     
     def ship_ship_cost(s1, s2):
         c = s1.calculate_distance_between(s2)
         if s2.docking_status != s2.DockingStatus.UNDOCKED:
             c *= 0.1
-        else:
-            for pl in owned:
-                if get_owner_id(pl) == my_id and ent_dist(s2,pl) < 40:
-                    c *= 0.1
-                    # logging.info("protecting planet")
-                    break
-            else:
-                c *= 1.5
         if entity_counts[s2]:
             c *= 0.8
-        if n_players != 2:
-            c *= centrality[s2]
         return c
     
     def best_ship(s):
@@ -337,25 +300,11 @@ while True:
         #     return original_target
 
         def h(p):
-            if n_players != 2:
-                if ship_ratio < 1/3:
-                    k_runaway = 1
-                    k_target = 0.1
-                    k_friends = 0
-                else:
-                    k_runaway = 1.2
-                    k_target = 1
-                    k_friends = 0.1
-            else: # 2 players
-                if game_state == MyState.EARLY:
-                    k_runaway = 3
-                    k_target = 1
-                    k_friends = -1
-                else:
-                    k_runaway = 0.97 + random.random()*0.09
-                    k_target = 1
-                    # k_friends = math.exp((1 - ship_ratio) / 4)
-                    k_friends = 0.25
+            # k_runaway = 0.97 + random.random()*0.08
+            k_runaway = 0
+            k_target = 1
+            # k_friends = math.exp((1 - ship_ratio) / 4)
+            k_friends = 0
 
             target_score = pos_dist(original_target, p) if original_target else 0
             target_score *= k_target
@@ -403,25 +352,25 @@ while True:
         ship_entity_combos.append((be, s))
 
     # dock ships that can
-    docking = set()
-    docking_planets = collections.Counter()
-    for best_entity, ship in ship_entity_combos:
-        if is_planet(best_entity) \
-                and can_dock(ship, best_entity) \
-                and (len(ent_friendlies(ship, 20)) - docking_planets[best_entity]
-                     >= len(ent_enemies(ship, 40))):
-            # if is_2p_early_game and nearest_ship_dist(ship) < 150 \
-            #         and len(live_enemy_ships) >= len(live_ships) - len(docking):
-            #     continue
-            if game_state == MyState.EARLY and (
-                    ship in should_deal_with_attackers | should_avoid_attackers
-                    or nearest_ship_dist(ship) < 40
-            ):
-                continue
+    # docking = set()
+    # docking_planets = collections.Counter()
+    # for best_entity, ship in ship_entity_combos:
+    #     if is_planet(best_entity) \
+    #             and can_dock(ship, best_entity) \
+    #             and (len(ent_friendlies(ship, 35)) - docking_planets[best_entity]
+    #                  >= len(ent_enemies(ship, 70))):
+    #         # if is_2p_early_game and nearest_ship_dist(ship) < 150 \
+    #         #         and len(live_enemy_ships) >= len(live_ships) - len(docking):
+    #         #     continue
+    #         if game_state == MyState.EARLY and (
+    #                 ship in should_deal_with_attackers
+    #                 or nearest_ship_dist(ship) < 40
+    #         ):
+    #             continue
 
-            command_queue.append(ship.dock(best_entity))
-            docking.add(ship)
-            docking_planets[best_entity] += 1
+    #         command_queue.append(ship.dock(best_entity)) 
+    #         docking.add(ship)
+    #         docking_planets[best_entity] += 1
 
     # for ship in sorted(live_ships, key=lambda s: s.calculate_distance_between(best_entity(s))):
     for i, (best_entity, ship) in enumerate(sorted(ship_entity_combos, 
@@ -429,68 +378,37 @@ while True:
         if time.time() - t_start > 1.3:
             break
 
-        if ship not in docking:
-            # checkpoint(str(i))
+        target_entity = get_target_around(best_entity)
 
-            # if n_players == 2 and ship.id == min(s.id for s in live_ships):
-            #     if len(enemy_ships) == len(live_enemy_ships):
-            #         greedy = min(enemy_ships, key=lambda s: ship.calculate_distance_between(s))
-            #     else:
-            #         greedy = min((s for s in enemy_ships if s.docking_status!=s.DockingStatus.UNDOCKED),
-            #                           key=lambda s: ship.calculate_distance_between(s))
-
-            if ship in should_deal_with_attackers:
-                best_entity = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
-            
-            elif ship in should_avoid_attackers:
-                closest_enemy = min(attackers.keys(), key=lambda ss: ent_dist(ship,ss))
-                farthest_pl = max(interested_planets, key=lambda ss: ent_dist(closest_enemy,ss))
-                if can_dock(ship, farthest_pl):
-                    command_queue.append(ship.dock(farthest_pl))
-                    docking.add(ship)
-                    docking_planets[farthest_pl] += 1
-                    continue
-                else:
-                    best_entity = farthest_pl
-
-            if is_planet(best_entity):
-                if not planet_safe(best_entity, n_dock=docking_planets[best_entity]):
-                    best_entity = min(
-                        ent_enemies(best_entity, 40),
-                        key=lambda s: best_entity.calculate_distance_between(s)
-                    )
-
-            target_entity = get_target_around(best_entity)
-
-            if is_ship(best_entity) \
-                    and ship.health < best_entity.health:
-                navTarget = target_entity
+        if is_ship(best_entity) \
+                and ship.health < best_entity.health:
+            navTarget = target_entity
+        else:
+            navTarget = closest_point(ship, target_entity)
+        if navTarget:
+            # timeLimit = 0.04
+            # nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
+            # nextPos = micro_policy(ship, nextPos)
+            nextPos = micro_policy(ship, (navTarget.x, navTarget.y))
+            if nextPos:
+                nx, ny = nextPos
+                mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
+                cmd = ship.thrust(round(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
+                command_queue.append(cmd)
+                nav_targets[ship] = nextPos
             else:
-                navTarget = closest_point(ship, target_entity)
-            if navTarget:
-                # timeLimit = 0.04
-                # nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
-                # nextPos = micro_policy(ship, nextPos)
-                nextPos = micro_policy(ship, (navTarget.x, navTarget.y))
-                if nextPos:
-                    nx, ny = nextPos
-                    mag = min(7, ((nx-ship.x)**2 + (ny-ship.y)**2)**0.5)
-                    cmd = ship.thrust(round(mag), math.degrees(math.atan2(ny-ship.y, nx-ship.x))%360)
+                o = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
+                        key=lambda s: ship.calculate_distance_between(s))
+                angle = o.calculate_angle_between(ship)
+                step = 1.5
+                nx = ship.x + step * math.cos(math.radians(angle))
+                ny = ship.y + step * math.sin(math.radians(angle))
+                # logging.info("trying fallback planner")
+                if inbounds((nx,ny)) and not collided(nx, ny, 1.5, 1, [(ship.x,ship.y)]):
+                    cmd = ship.thrust(step, angle)
                     command_queue.append(cmd)
-                    nav_targets[ship] = nextPos
-                else:
-                    o = min(set(game_map.all_planets()) | set(live_ships) - set((ship,)), 
-                            key=lambda s: ship.calculate_distance_between(s))
-                    angle = o.calculate_angle_between(ship)
-                    step = 1.5
-                    nx = ship.x + step * math.cos(math.radians(angle))
-                    ny = ship.y + step * math.sin(math.radians(angle))
-                    # logging.info("trying fallback planner")
-                    if inbounds((nx,ny)) and not collided(nx, ny, 1.5, 1, [(ship.x,ship.y)]):
-                        cmd = ship.thrust(step, angle)
-                        command_queue.append(cmd)
-                        nav_targets[ship] = (nx, ny)
-                        # logging.info("used fallback planner")
+                    nav_targets[ship] = (nx, ny)
+                    # logging.info("used fallback planner")
 
     if len(command_queue) == 0:
         command_queue.append(game_map.get_me().all_ships()[0].thrust(0,0))

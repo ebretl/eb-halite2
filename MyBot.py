@@ -155,21 +155,15 @@ while True:
     pl_counts = collections.Counter()
     entity_counts = collections.Counter()
 
-    # planet_enemies = dict()
-    # planet_friendlies = dict()
-    # for p in game_map.all_planets():
-    #     planet_enemies[p] = [s for s in live_enemy_ships if ent_dist(p, s) < p.radius+30]
-    #     planet_friendlies[p] = [s for s in live_ships if opt_dist(p, s) < p.radius+30]
-
-    def planet_enemies(p, x):
-        return [s for s in live_enemy_ships if ent_dist(p, s) < p.radius + x]
-    def planet_friendlies(p, x):
-        return [s for s in live_ships if opt_dist(p, s) < p.radius + x]
+    def ent_enemies(e, x):
+        return [s for s in live_enemy_ships if ent_dist(e, s) < e.radius + x]
+    def ent_friendlies(e, x):
+        return [s for s in live_ships if opt_dist(e, s) < e.radius + x]
 
     def planet_safe(pl, n_dock=0):
         x = 30
-        return len(planet_enemies(pl, x)) == 0 \
-            or len(planet_friendlies(pl, x)) - n_dock >= 1.5 * len(planet_enemies(pl, x))
+        return len(ent_enemies(pl, x)) == 0 \
+            or len(ent_friendlies(pl, x)) - n_dock >= 1.5 * len(ent_enemies(pl, x))
 
 
     # unsafe = set(p for p in owned if not planet_safe(p))
@@ -183,7 +177,7 @@ while True:
         c = s.calculate_distance_between(p) / p.num_docking_spots
         if p in pl_counts:
             c *= math.exp(0.09 * n_pl_targeting(p))
-        n = len(planet_enemies(p,30)) - len(planet_friendlies(p,30))
+        n = len(ent_enemies(p,30)) - len(ent_friendlies(p,30))
         c *= math.exp(0.08 * n)
         if game_state==MyState.NORMAL and not p.owner and p not in pl_counts \
                 and nearest_ship_dist(p) > 120 and nearest_ship_dist(s) > 120:
@@ -346,10 +340,10 @@ while True:
                     k_target = 1
                     k_friends = 0
             else: # 2 players
-                k_runaway = 1.2
+                k_runaway = 1.05
                 k_target = 1
                 # k_friends = math.exp((1 - ship_ratio) / 4)
-                k_friends = 0
+                k_friends = 0.25
 
             target_score = pos_dist(original_target, p) if original_target else 0
             target_score *= k_target
@@ -389,8 +383,7 @@ while True:
 
 
     ship_entity_combos = []
-    for s in sorted(live_ships, 
-                    key=lambda ss: nearest_planet(ss).calculate_distance_between(ss)):
+    for s in sorted(live_ships, key=lambda ss: ent_dist(nearest_planet(ss), ss)):
         be = best_entity(s)
         entity_counts[be] += 1
         if is_planet(be):
@@ -403,15 +396,17 @@ while True:
     for best_entity, ship in ship_entity_combos:
         if is_planet(best_entity) \
                 and can_dock(ship, best_entity) \
-                and planet_safe(best_entity, n_dock=docking_planets[best_entity]):
+                and (len(ent_friendlies(ship, 20)) - docking_planets[best_entity]
+                     >= len(ent_enemies(ship, 40))):
             # if is_2p_early_game and nearest_ship_dist(ship) < 150 \
             #         and len(live_enemy_ships) >= len(live_ships) - len(docking):
             #     continue
             if game_state == MyState.EARLY and (
                     ship in should_deal_with_attackers
-                    or nearest_ship_dist(ship) < 30
+                    or nearest_ship_dist(ship) < 40
             ):
                 continue
+
             command_queue.append(ship.dock(best_entity)) 
             docking.add(ship)
             docking_planets[best_entity] += 1
@@ -438,7 +433,7 @@ while True:
             if is_planet(best_entity):
                 if not planet_safe(best_entity, n_dock=docking_planets[best_entity]):
                     best_entity = min(
-                        planet_enemies(best_entity, 40),
+                        ent_enemies(best_entity, 40),
                         key=lambda s: best_entity.calculate_distance_between(s)
                     )
 

@@ -53,22 +53,6 @@ while True:
     live_ships = [x for x in game_map.get_me().all_ships() if x.docking_status==x.DockingStatus.UNDOCKED]
     random.shuffle(live_ships)
 
-    # my_clusters = list()
-    # def get_cluster(ship):
-    #     for cluster in my_clusters:
-    #         if ship in cluster:
-    #             return cluster
-    #     return None
-
-    # for ship in live_ships:
-    #     for other in live_ships:
-    #         if ship != other and ship.calculate_distance_between(other) < 2.0:
-    #             other_cluster = get_cluster(other)
-    #             if other_cluster:
-    #                 other_cluster.add(ship)
-    #             else:
-    #                 my_clusters.append(set([ship]))
-
     enemy_ships = []
     live_enemy_ships = []
     most_enemy_ships = 0
@@ -208,13 +192,11 @@ while True:
         if s2.docking_status != s2.DockingStatus.UNDOCKED:
             c *= 0.1
         else:
-            for pl in owned:
-                if get_owner_id(pl) == my_id and ent_dist(s2,pl) < 40:
-                    c *= 0.1
-                    # logging.info("protecting planet")
-                    break
-            else:
-                c *= 1.5
+            c *= 1.5
+            if len(owned) > 0:
+                d = min(ent_dist(s2,p) for p in owned)
+                if d < 40:
+                    c *= 0.00273 * d**1.6
         if entity_counts[s2]:
             c *= 0.8
         if n_players != 2:
@@ -352,10 +334,10 @@ while True:
                     k_target = 1
                     k_friends = -1
                 else:
-                    k_runaway = 0.97 + random.random()*0.09
+                    k_runaway = 0.99 + random.random()*0.02
                     k_target = 1
                     # k_friends = math.exp((1 - ship_ratio) / 4)
-                    k_friends = 0.25
+                    k_friends = 1
 
             target_score = pos_dist(original_target, p) if original_target else 0
             target_score *= k_target
@@ -436,19 +418,20 @@ while True:
             #         greedy = min((s for s in enemy_ships if s.docking_status!=s.DockingStatus.UNDOCKED),
             #                           key=lambda s: ship.calculate_distance_between(s))
 
-            if ship in should_deal_with_attackers:
-                best_entity = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
-            
-            elif ship in should_avoid_attackers:
-                closest_enemy = min(attackers.keys(), key=lambda ss: ent_dist(ship,ss))
-                farthest_pl = max(interested_planets, key=lambda ss: ent_dist(closest_enemy,ss))
-                if can_dock(ship, farthest_pl):
-                    command_queue.append(ship.dock(farthest_pl))
-                    docking.add(ship)
-                    docking_planets[farthest_pl] += 1
-                    continue
-                else:
-                    best_entity = farthest_pl
+            if game_state == MyState.EARLY:
+                if ship in should_deal_with_attackers:
+                    best_entity = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
+                
+                elif ship in should_avoid_attackers: # avoid
+                    closest_enemy = min(attackers.keys(), key=lambda ss: ent_dist(ship,ss))
+                    farthest_pl = max(interested_planets, key=lambda ss: ent_dist(closest_enemy,ss))
+                    if can_dock(ship, farthest_pl):
+                        command_queue.append(ship.dock(farthest_pl))
+                        docking.add(ship)
+                        docking_planets[farthest_pl] += 1
+                        continue
+                    else:
+                        best_entity = farthest_pl
 
             if is_planet(best_entity):
                 if not planet_safe(best_entity, n_dock=docking_planets[best_entity]):
@@ -459,15 +442,13 @@ while True:
 
             target_entity = get_target_around(best_entity)
 
-            if is_ship(best_entity) \
-                    and ship.health < best_entity.health:
+            if is_ship(best_entity) and ship.health < best_entity.health:
                 navTarget = target_entity
             else:
                 navTarget = closest_point(ship, target_entity)
+            
             if navTarget:
-                # timeLimit = 0.04
-                # nextPos = search((ship.x, ship.y), (navTarget.x, navTarget.y), timeLimit)
-                # nextPos = micro_policy(ship, nextPos)
+
                 nextPos = micro_policy(ship, (navTarget.x, navTarget.y))
                 if nextPos:
                     nx, ny = nextPos

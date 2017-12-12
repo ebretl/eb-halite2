@@ -181,7 +181,7 @@ while True:
         if s2.docking_status != s2.DockingStatus.UNDOCKED:
             c *= 0.1
         if entity_counts[s2]:
-            c *= 0.8
+            c *= 3
         return c
     
     def best_ship(s):

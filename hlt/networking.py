@@ -92,6 +92,6 @@ class Game:
         :rtype: game_map.Map
         """
         import logging
-        logging.info("---NEW TURN---")
+        # logging.info("---NEW TURN---")
         self.map._parse(self._get_string())
         return self.map

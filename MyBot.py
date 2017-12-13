@@ -376,7 +376,8 @@ while True:
             target_score *= k_target
 
             if near_friends and k_friends:
-                friend_score = min(opt_dist(ship,ss) for ss in near_friends) * k_friends
+                newp = lambda ss: nav_targets[ss] if ss in nav_targets else (ss.x,ss.y)
+                friend_score = min(pos_dist(p,newp(ss)) for ss in near_friends) * k_friends
                 # friend_score = sum(1 / (opt_dist(ship,ss)**2) for ss in near_friends) * k_friends
             else:
                 friend_score = 0

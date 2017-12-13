@@ -87,11 +87,13 @@ while True:
     should_gang_up = set()
     should_avoid_attackers = set()
     gang_up_target = None
+    attackers_last_time = True
     if game_state == MyState.EARLY:
         # if n_players != 2 or len(all_my_ships) != 3:
-        if len(enemy_ships) > 3 or len(live_ships) > 6:
+        if len(enemy_ships) > 3 or len(live_ships) > 6 \
+                or (len(live_enemy_ships) == 1 and live_enemy_ships[0].x<0):
             game_state = MyState.NORMAL
-            logging.info("leaving early game state")
+            logging.info("leaving early game state due to ship counts")
         else:
             attackers = dict() # ship -> heading
             for s in live_enemy_ships:
@@ -103,22 +105,30 @@ while True:
                     mag_travel = (dx*dx+dy*dy)**0.5
                     for my_s in all_my_ships:
                         h_to_me = math.atan2(my_s.y-s.y, my_s.x-s.x)
-                        if compare_angle(h_travel, h_to_me, 0.5) \
-                                and mag_travel > 1:
+                        if compare_angle(h_travel, h_to_me, 0.7) \
+                                and mag_travel > 1 and ent_dist(s,my_s) < 150:
                             # logging.info("%f ~ %f" % (h_travel, h_to_me))
                             attackers[s] = h_travel
                             break
                     # logging.info("(%.2f, %.2f) over (%.2f, %.2f)" % ((s.x,s.y)+prev_poses[s.id]))
                 prev_poses[s.id] = (float(s.x), float(s.y))
 
+            if not attackers_last_time and not attackers:
+                game_state = MyState.NORMAL
+                logging.info("leaving early game state due to no attackers")
+            attackers_last_time = bool(attackers)
+
             for sa, h in attackers.items():
-                for sm in sorted(live_ships, key=lambda s: ent_dist(s,sa)):
+                free = lambda ss: ss not in should_deal_with_attackers | should_avoid_attackers
+                free_l = [ss for ss in live_ships if free(ss)]
+                if len(free_l) > 0:
+                    sm = min(free_l, key=lambda s: ent_dist(s,sa))
                     h_to_me = math.atan2(sm.y-s.y, sm.x-s.x)
-                    if sm not in should_deal_with_attackers | should_avoid_attackers:
-                        if compare_angle(h, h_to_me, 1.2) and ent_dist(sa,sm)<150:
-                            should_deal_with_attackers.add(sm)
-                        else:
-                            should_avoid_attackers.add(sm)
+                    if compare_angle(h, h_to_me, 1.2) and ent_dist(sa,sm)<150:
+                        should_deal_with_attackers.add(sm)
+                    else:
+                        should_avoid_attackers.add(sm)
+                    logging.info("%d wary of enemy %d" % (sm.id, sa.id))
 
             if len(attackers) > 1 and len(should_deal_with_attackers) > 1:
                 for sa, h in attackers.items():
@@ -129,12 +139,12 @@ while True:
                         h_from_other = math.atan2(sm.y-other.y, sm.x-other.x)
                         friend = min((x for x in should_deal_with_attackers if x!=sm),
                                      key = lambda ss: ent_dist(sm,ss))
-                        potential_target = min([sa, other], key=lambda ss: ent_dist(sm,ss))
-                        # logging.info("%f %f %f %d" % (opt_dist(sm, friend), 
-                        #                            ent_dist(sm, potential_target),
-                        #                            ent_dist(friend, potential_target),
-                        #                            len(ent_enemies(potential_target, 7))))
-                        if ent_dist(sm, friend) < 5 \
+                        potential_target = min([sa, other], key=lambda ss: ss.health)
+                        # logging.info("%f %f %f %d" % (ent_dist(sm, friend), 
+                                                   # ent_dist(sm, potential_target),
+                                                   # ent_dist(friend, potential_target),
+                                                   # len(ent_enemies(potential_target, 7))))
+                        if ent_dist(sm, friend) < 8 \
                                 and ent_dist(sm, potential_target) < 15 \
                                 and ent_dist(friend, potential_target) < 15 \
                                 and not compare_angle(h_to_me, h_from_other, 1.5) \
@@ -146,8 +156,6 @@ while True:
                             should_gang_up.add(friend)
                             gang_up_target = potential_target
                             logging.info("gang up")
-                        logging.info("%d wary of enemy %d" % (sm.id,sa.id))
-                        break
             
 
     # is_2p_early_game = n_players == 2 and len(enemy_ships) == 3 \
@@ -355,22 +363,22 @@ while True:
                 if ship_ratio < 1/3:
                     k_runaway = 1
                     k_target = 0.1
-                    k_friends = 0
+                    k_friends = -0.2
                 else:
                     k_runaway = 1.2
                     k_target = 1
-                    k_friends = 0.1
+                    k_friends = 0.3
             else: # 2 players
                 if game_state == MyState.EARLY:
                     smash = ship in should_gang_up or len(live_ships) > len(enemy_ships)
-                    k_runaway = 0 if smash else 7
+                    k_runaway = 0 if smash else 3
                     k_target = 1
-                    k_friends = 0
+                    k_friends = -0.2
                 else:
-                    k_runaway = 0.99 + random.random()*0.04
+                    k_runaway = 0.97 + random.random()*0.09
                     k_target = 1
                     # k_friends = math.exp((1 - ship_ratio) / 4)
-                    k_friends = 1
+                    k_friends = 0.3
 
             target_score = pos_dist(original_target, p) if original_target else 0
             target_score *= k_target
@@ -382,20 +390,28 @@ while True:
             else:
                 friend_score = 0
 
-            if len(near_friends) > len(near_live_enemies):
+            if len(near_friends) >= len(near_live_enemies) \
+                    or (len(near_live_enemies) == 1
+                        and ship.health > near_live_enemies[0].health
+                        and len(ent_enemies(near_live_enemies[0], 7))):
                 avoid_score = 0
             elif near_live_enemies and k_runaway:
-                e = hlt.entity.Position(p[0], p[1])
-                closest = min(near_live_enemies, key=lambda ss: ent_dist(e,ss))
+                closest = min(near_live_enemies, key=lambda ss: pos_dist(p,(ss.x,ss.y)))
                 avoid_pos = (closest.x, closest.y)
                 avoid_score = pos_dist(avoid_pos, p) * k_runaway
+                # if game_state == MyState.EARLY:
+                #     closest_orig = min(near_live_enemies, key=lambda ss: ent_dist(ship, ss))
+                #     if closest != closest_orig:
+                #         avoid_score *= 0.85
+                #     if min([p[0], p[1], game_map.width-p[0], game_map.height-p[1]]) < 5:
+                #         avoid_score *= 0.8
             else:
                 avoid_score = 0
             
             return avoid_score - target_score - friend_score
 
 
-        thrusts = [2, 4, 6, 7]
+        thrusts = [2, 4, 6, 7] if game_state==MyState.NORMAL else [4,8,12,14]
         angles = [math.radians(a) for a in range(0,360,20)]
         pos1 = (ship.x, ship.y)
         best_pos = pos1
@@ -454,7 +470,7 @@ while True:
 
             if game_state == MyState.EARLY:
                 if ship in should_deal_with_attackers:
-                    if len(live_ships) == 1:
+                    if len(live_ships) <= 1:
                         # ts = [(1,1), (1,game_map.height-1), (game_map.width-1, 1), (game_map.width-1, game_map.height-1)]
                         # best_entity = max((hlt.entity.Entity(x,y,1,0,0,0) for x,y in ts), 
                         #                   key=lambda e: ent_dist(ship,e))
@@ -463,15 +479,19 @@ while True:
                     elif ship in should_gang_up:
                         best_entity = gang_up_target
                     else:
-                        # best_entity = sorted(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))[1]
-                        best_entity = sorted(live_ships, key=lambda ss: ent_dist(ship,ss))[1]
-                        if opt_dist(ship, best_entity) < 7:
-                            dx = best_entity.x - ship.x
-                            dy = best_entity.y - ship.y
-                            best_entity = hlt.entity.Entity(ship.x-3*dx, ship.y-3*dy,1,0,0,0)
+                        closest = min(live_ships+live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
+                        target_pool = live_enemy_ships if closest.owner.id == my_id else live_ships
+                        if len(target_pool) == 1:
+                            best_entity = target_pool[0]
+                        else:
+                            best_entity = sorted(target_pool, key=lambda ss: ent_dist(ship,ss))[1]
+                        # if opt_dist(ship, best_entity) < 7:
+                        #     dx = best_entity.x - ship.x
+                        #     dy = best_entity.y - ship.y
+                        #     best_entity = hlt.entity.Entity(ship.x-3*dx, ship.y-3*dy,1,0,0,0)
                 
-                # elif ship in should_avoid_attackers: # avoid
-                else:
+                elif ship in should_avoid_attackers: # avoid
+                # else:
                     closest_enemy = min(live_enemy_ships, key=lambda ss: ent_dist(ship,ss))
                     farthest_pl = max(interested_planets, key=lambda ss: ent_dist(closest_enemy,ss))
                     if can_dock(ship, farthest_pl):
